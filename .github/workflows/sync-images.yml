@@ -1,7 +1,28 @@
-name: Sync images
-on: workflow_dispatch
+name: Sync final image assets
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/sync-images.yml"
+
+permissions:
+  contents: write
+
 jobs:
-  noop:
+  sync:
     runs-on: ubuntu-latest
     steps:
-      - run: echo ready
+      - uses: actions/checkout@v4
+      - name: Download image assets
+        shell: bash
+        run: |
+          set -e
+          mkdir -p assets/images
+          base="https://draydania.com/assets/images"
+          for f in about.jpg ba-body-front.jpg ba-body-side.jpg ba-eye.jpg ba-face.jpg ba-hair.jpg ba-lips.jpg ba-men.jpg ba-weight.jpg favicon.png hero.jpg logo-original.png logo-transparent.png service-body.jpg service-botox.jpg service-prp.jpg service-radiofrequency.jpg service-weight.jpg; do
+            curl -fL "$base/$f" -o "assets/images/$f"
+          done
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Sync exact final image assets
+          file_pattern: assets/images/*
