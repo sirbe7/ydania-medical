@@ -51,3 +51,5 @@ jobs:
         with:
           commit_message: Sync exact final V2 production files
           file_pattern: index.html assets/* en/index.html es/index.html it/index.html ko/index.html pt/index.html
+
+# final trigger after metadata sync
