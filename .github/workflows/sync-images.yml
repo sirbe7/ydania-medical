@@ -26,3 +26,5 @@ jobs:
         with:
           commit_message: Sync exact final image assets
           file_pattern: assets/images/*
+
+# trigger sync
