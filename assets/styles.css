@@ -54,3 +54,10 @@
   .ai-chat-panel.minimized{right:10px;bottom:78px;width:min(310px,calc(100vw - 20px))}
   .ai-chat-panel.maximized{right:6px;bottom:6px;width:calc(100vw - 12px);height:calc(100vh - 12px);max-height:none}
 }
+
+/* Chat window corrections */
+.ai-chat-panel{padding:0!important}
+.ai-chat-panel.minimized{display:none!important}
+.ai-chat-minimize{opacity:.38!important;cursor:default!important}
+.ai-chat-minimize.is-enabled{opacity:.88!important;cursor:pointer!important}
+.ai-chat-minimize.is-enabled:hover{background:rgba(255,255,255,.12)!important;opacity:1!important}
