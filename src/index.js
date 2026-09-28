@@ -119,15 +119,27 @@ async function scheduleReminders(db,bookingId,startAt){
 
 async function adminSummary(request,env){
   if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env);
-  const [pending,today,errors,services,settings,auditRows]=await Promise.all([
+  const [pending,today,errors,services,settings,auditRows,rules,blocks]=await Promise.all([
     db.prepare(`SELECT b.id,b.patient_name,b.patient_phone,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status='pending' ORDER BY b.start_at LIMIT 50`).all(),
     db.prepare(`SELECT b.id,b.patient_name,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status IN ('pending','confirmed') AND date(b.start_at)=date('now') ORDER BY b.start_at`).all(),
     db.prepare(`SELECT id,component,message,created_at FROM error_log WHERE resolved_at IS NULL ORDER BY created_at DESC LIMIT 20`).all(),
     db.prepare(`SELECT * FROM services WHERE active=1 ORDER BY name_es`).all(),
     db.prepare(`SELECT key,value FROM settings`).all(),
-    db.prepare(`SELECT actor_type,actor_id,action,entity_type,entity_id,created_at FROM audit_log ORDER BY created_at DESC LIMIT 40`).all()
+    db.prepare(`SELECT actor_type,actor_id,action,entity_type,entity_id,created_at FROM audit_log ORDER BY created_at DESC LIMIT 40`).all(),
+    db.prepare(`SELECT id,weekday,start_time,end_time,enabled FROM availability_rules ORDER BY weekday,start_time`).all(),
+    db.prepare(`SELECT id,start_at,end_at,reason,source FROM blocked_periods WHERE deleted_at IS NULL AND end_at>? ORDER BY start_at LIMIT 50`).bind(nowIso()).all()
   ]);
-  return json({ok:true,pending:pending.results||[],today:today.results||[],errors:errors.results||[],services:services.results||[],settings:Object.fromEntries((settings.results||[]).map(x=>[x.key,x.value])),audit:auditRows.results||[]});
+  return json({ok:true,pending:pending.results||[],today:today.results||[],errors:errors.results||[],services:services.results||[],settings:Object.fromEntries((settings.results||[]).map(x=>[x.key,x.value])),audit:auditRows.results||[],availability_rules:rules.results||[],blocks:blocks.results||[]});
+}
+
+async function adminCreateService(request,env){
+  if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env); const body=await request.json();
+  const nameEs=textLimit(body.name_es,150),slug=textLimit(body.slug||nameEs.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''),120);
+  if(!nameEs||!slug||!Number(body.duration_minutes)) return bad('name_es, slug and duration_minutes are required');
+  const id=uid('svc'),now=nowIso();
+  await db.prepare(`INSERT INTO services(id,slug,name_es,name_en,category,duration_minutes,buffer_before_minutes,buffer_after_minutes,price_text,booking_enabled,staff_approval_required,max_per_day,min_notice_minutes,instructions,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(id,slug,nameEs,textLimit(body.name_en,150)||null,textLimit(body.category||'general',50),Number(body.duration_minutes),Number(body.buffer_before_minutes||0),Number(body.buffer_after_minutes||0),textLimit(body.price_text,120)||null,body.booking_enabled===false?0:1,body.staff_approval_required===false?0:1,body.max_per_day?Number(body.max_per_day):null,Number(body.min_notice_minutes||120),textLimit(body.instructions,2000)||null,1,now,now).run();
+  await audit(db,{actorType:'staff',actorId:'admin',action:'service_created',entityType:'service',entityId:id,after:body}); return json({ok:true,id},201);
 }
 
 async function adminSaveService(request,env,id){
@@ -144,6 +156,14 @@ async function adminBlock(request,env){
   if(!body.start_at||!body.end_at) return bad('start_at and end_at required'); const id=uid('block'); const now=nowIso();
   await db.prepare(`INSERT INTO blocked_periods(id,start_at,end_at,reason,source,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`).bind(id,body.start_at,body.end_at,textLimit(body.reason,300)||'Unavailable','admin',now,now).run();
   await audit(db,{actorType:'staff',actorId:'admin',action:'blocked_period_created',entityType:'blocked_period',entityId:id,after:body}); return json({ok:true,id},201);
+}
+
+async function adminRemoveBlock(request,env,id){
+  if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env); const before=await db.prepare(`SELECT * FROM blocked_periods WHERE id=? AND deleted_at IS NULL`).bind(id).first(); if(!before)return bad('Block not found',404); const now=nowIso(); await db.prepare(`UPDATE blocked_periods SET deleted_at=?,updated_at=? WHERE id=?`).bind(now,now,id).run(); await audit(db,{actorType:'staff',actorId:'admin',action:'blocked_period_removed',entityType:'blocked_period',entityId:id,before,after:{deleted_at:now}}); return json({ok:true});
+}
+
+async function adminDisableRule(request,env,id){
+  if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env); const now=nowIso(); await db.prepare(`UPDATE availability_rules SET enabled=0,updated_at=? WHERE id=?`).bind(now,id).run(); await audit(db,{actorType:'staff',actorId:'admin',action:'availability_rule_disabled',entityType:'availability_rule',entityId:id,after:{enabled:0}}); return json({ok:true});
 }
 
 async function adminAvailabilityRule(request,env){
@@ -269,9 +289,12 @@ async function route(request,env){
     else if(path==='/api/bookings/request'&&request.method==='POST') response=await createBookingRequest(request,env);
     else if(path==='/api/chat'&&request.method==='POST') response=await handleChat(request,env);
     else if(path==='/api/admin/summary'&&request.method==='GET') response=await adminSummary(request,env);
+    else if(path==='/api/admin/services'&&request.method==='POST') response=await adminCreateService(request,env);
     else if(path.startsWith('/api/admin/services/')&&request.method==='PATCH') response=await adminSaveService(request,env,path.split('/').pop());
     else if(path==='/api/admin/blocks'&&request.method==='POST') response=await adminBlock(request,env);
+    else if(/^\/api\/admin\/blocks\/[^/]+\/remove$/.test(path)&&request.method==='POST') response=await adminRemoveBlock(request,env,path.split('/')[4]);
     else if(path==='/api/admin/availability-rules'&&request.method==='POST') response=await adminAvailabilityRule(request,env);
+    else if(/^\/api\/admin\/availability-rules\/[^/]+\/disable$/.test(path)&&request.method==='POST') response=await adminDisableRule(request,env,path.split('/')[4]);
     else if(path==='/api/admin/settings'&&request.method==='PATCH') response=await adminSaveSettings(request,env);
     else if(/^\/api\/admin\/bookings\/[^/]+\/(approve|decline|cancel)$/.test(path)&&request.method==='POST'){const parts=path.split('/'); const action=parts.pop(),id=parts.pop(); response=await updateBookingStatus(request,env,id,action==='approve'?'confirmed':action==='decline'?'declined':'cancelled');}
     else if(path==='/api/webhooks/ycloud'&&request.method==='POST') response=await ycloudWebhook(request,env);
