@@ -1,8 +1,8 @@
 const OPENAI_URL='https://api.openai.com/v1/responses';
 
 export function chooseModel(env,{risk='normal',complexity='simple'}={}){
-  if(risk==='medical_sensitive' || complexity==='complex') return env.OPENAI_MODEL_SMART || 'gpt-5.6-terra';
-  return env.OPENAI_MODEL_FAST || 'gpt-5.6-luna';
+  if(risk==='medical_sensitive' || complexity==='complex') return env.OPENAI_MODEL_SMART || 'gpt-6-sol';
+  return env.OPENAI_MODEL_FAST || 'gpt-6-luna';
 }
 
 export function medicalRisk(text=''){
