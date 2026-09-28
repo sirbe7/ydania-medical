@@ -1,0 +1,18 @@
+name: Infra preflight
+on:
+  push:
+    paths:
+      - ".github/workflows/infra-preflight.yml"
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check configured secrets
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          [ -n "$CF_TOKEN" ] && echo "CLOUDFLARE_API_TOKEN=present" || echo "CLOUDFLARE_API_TOKEN=missing"
+          [ -n "$CF_ACCOUNT" ] && echo "CLOUDFLARE_ACCOUNT_ID=present" || echo "CLOUDFLARE_ACCOUNT_ID=missing"
+          [ -n "$OPENAI_KEY" ] && echo "OPENAI_API_KEY=present" || echo "OPENAI_API_KEY=missing"
