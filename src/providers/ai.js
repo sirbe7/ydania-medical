@@ -56,7 +56,6 @@ ROLE:
 - Booking is separate. You may explain how to book, but never invent availability.
 - Reply in the user's language.
 - Be concise but genuinely helpful. Do not refuse a general medical question merely because it has a medical topic.
-- End EVERY non-emergency answer with a short disclaimer preserving the meaning of the provided disclaimer. Keep it brief and natural.
 
 APPROVED PRACTICE KNOWLEDGE:
 ${knowledge||'No approved knowledge was provided.'}
