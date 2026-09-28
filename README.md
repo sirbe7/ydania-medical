@@ -1,8 +1,29 @@
-# Dra. Ydania medical website — final build
+# Dra. Ydania medical website
 
-Static multilingual production package for Cloudflare Workers static assets.
+Multilingual medical website plus Phase 1 scheduling/AI backend for Cloudflare Workers.
 
-Languages: Spanish, English, Portuguese, Italian, Korean.
-Includes original supplied Ydania branding crop, doctor photography, treatment imagery, and a dedicated before/after gallery with medical disclaimer.
+## Public
+- Spanish, English, Portuguese, Italian, Korean landing pages
+- Level-2 AI receptionist endpoint (`/api/chat`)
+- Booking request page (`/booking/`)
 
-Deployment: upload the contents of this ZIP as a new deployment of the existing `ydania-medical` Worker.
+## Staff
+- Doctor Admin (`/admin/`)
+- service durations and buffers
+- staff-approved bookings
+- schedule blocks / vacations
+- weekly availability rules
+- health and error dashboard
+- WhatsApp/YCloud text + voice scheduling commands
+- daily agenda email workflow
+
+## Reliability
+- D1 source of truth
+- atomic booking locks
+- audit log
+- error log
+- Workers observability
+- D1 Time Travel recovery
+- automated tests
+
+See `docs/ARCHITECTURE.md` for setup and provider configuration.

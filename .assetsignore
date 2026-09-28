@@ -1,4 +1,11 @@
 .git
 .github
+node_modules
+src
+tests
+migrations
+docs
+package.json
+package-lock.json
 wrangler.jsonc
 README.md
