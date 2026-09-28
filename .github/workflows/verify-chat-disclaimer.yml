@@ -1,0 +1,28 @@
+name: Verify chatbot disclaimer cleanup
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-chat-disclaimer.yml"
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sleep 30
+      - name: Confirm no duplicate routine disclaimer
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error             -H "Content-Type: application/json"             --data '{"message":"¿Qué servicios ofrece la Dra. Ydania?","language":"es","history":[]}'             https://draydania.com/api/chat > /tmp/chat.json
+          node - <<'NODE'
+          const x=require('/tmp/chat.json');
+          if(!x.ok||!x.answer) process.exit(1);
+          const a=x.answer.toLowerCase();
+          const bad=[
+            'este asistente ofrece información educativa general',
+            'no diagnostica ni recomienda tratamientos personalizados',
+            'no proporciona diagnósticos ni recomendaciones médicas personalizadas'
+          ];
+          if(bad.some(p=>a.includes(p))){ console.error(x.answer); process.exit(1); }
+          console.log(x.answer);
+          NODE
