@@ -31,7 +31,7 @@
 .ai-chat-head{min-height:58px;padding:10px 12px 10px 15px;background:linear-gradient(135deg,#6f3f78,#5e3567);color:#fff}
 .ai-chat-identity{display:flex;flex-direction:column;line-height:1.15}
 .ai-chat-identity strong{font-family:Georgia,"Times New Roman",serif;font-size:1.02rem;font-weight:700;letter-spacing:.01em}
-.ai-chat-identity span{margin-top:4px;font-size:.67rem;letter-spacing:.055em;text-transform:uppercase;opacity:.72}
+.ai-chat-identity span{margin-top:4px;font-size:.67rem;letter-spacing:.02em;text-transform:none;opacity:.72}
 .ai-chat-window-actions{display:flex;align-items:center;gap:3px}
 .ai-chat-window-actions button{width:30px;height:30px;border:0;background:transparent;color:#fff;border-radius:8px;font:inherit;font-size:1.12rem;line-height:1;cursor:pointer;opacity:.82;display:inline-flex;align-items:center;justify-content:center}
 .ai-chat-window-actions button:hover{background:rgba(255,255,255,.12);opacity:1}
