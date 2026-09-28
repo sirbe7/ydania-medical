@@ -1,0 +1,62 @@
+name: Apply production migrations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "migrations/**"
+      - ".github/workflows/migrate-production.yml"
+
+jobs:
+  migrate-deploy-smoke:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install --ignore-scripts
+
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply ydania-scheduling --remote
+
+      - name: Test
+        run: npm test
+
+      - name: Deploy
+        run: npx wrangler deploy
+
+      - name: Wait for production
+        run: sleep 8
+
+      - name: Smoke test health and public API
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error https://draydania.com/api/health > /tmp/health.json
+          node -e "const x=require('/tmp/health.json'); if(!x.ok||!x.components?.database?.ok||!x.components?.openai?.ok) process.exit(1); console.log('Health OK');"
+          curl --fail --silent --show-error https://draydania.com/api/services > /tmp/services.json
+          node -e "const x=require('/tmp/services.json'); if(!x.ok||!Array.isArray(x.services)||x.services.length<1) process.exit(1); console.log('Services OK:',x.services.length);"
+
+      - name: Verify admin authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --output /tmp/noauth.json --write-out '%{http_code}' https://draydania.com/api/admin/summary)"
+          test "$CODE" = "401"
+          curl --fail --silent --show-error             -H "Authorization: Bearer $ADMIN_SECRET"             https://draydania.com/api/admin/summary > /tmp/admin.json
+          node -e "const x=require('/tmp/admin.json'); if(!x.ok) process.exit(1); console.log('Admin auth OK');"
+
+      - name: Verify live AI receptionist
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error             -H "Content-Type: application/json"             --data '{"message":"¿Dónde está ubicado el consultorio?","language":"es","history":[]}'             https://draydania.com/api/chat > /tmp/chat.json
+          node -e "const x=require('/tmp/chat.json'); if(!x.ok||!x.answer||x.answer.length<20) process.exit(1); console.log('AI chat OK, model:',x.model);"
