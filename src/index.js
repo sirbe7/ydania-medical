@@ -87,7 +87,7 @@ async function createBookingRequest(request,env){
   const staff=String(env.STAFF_WHATSAPP_NUMBERS||'').split(',').map(cleanPhone).filter(Boolean);
   if(staff.length){
     const local=utcIsoToLocalParts(visibleStart.toISOString(),Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES)));
-    const msg=`Nueva solicitud de cita\n${name}\n${service.name_es}\n${local.date} ${local.time}\nID: ${id}\nPendiente de aprobación.`;
+    const msg=`Nueva solicitud de cita\n${name}\n${service.name_es}\n${local.date} ${local.time}\nID: ${id}\n\nResponde:\nAPROBAR ${id}\nRECHAZAR ${id}`;
     for(const to of staff) try{await sendWhatsAppText(env,to,msg)}catch(e){await recordError(db,'whatsapp.staff_approval',e,{booking_id:id,to})}
   }
   return json({ok:true,booking:{id,public_token:token,status:'pending',start_at:visibleStart.toISOString(),end_at:visibleEnd.toISOString(),service:{id:service.id,name:service.name_es}},message:'Appointment request received and pending staff approval.'},201);
