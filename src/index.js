@@ -2,7 +2,7 @@ import PostalMime from 'postal-mime';
 import {buildSlots, utcIsoToLocalParts, localDateTimeToUtcIso, DEFAULT_UTC_OFFSET_MINUTES} from './scheduling.js';
 import {json,bad,requireAdmin,corsHeaders} from './guards.js';
 import {uid,nowIso,getSetting,setSetting,audit,recordError,listServices,getService} from './db.js';
-import {medicalRisk,sanitizePublicChatInput,openAiText,transcribeAudio,chatbotInstructions,chooseModel} from './providers/ai.js';
+import {medicalRisk,sanitizePublicChatInput,generateText,transcribeAudio,chatbotInstructions,chooseModel} from './providers/ai.js';
 import {sendWhatsAppText,sendWhatsAppTemplateOrText,downloadYCloudMedia,whatsappProvider} from './providers/whatsapp.js';
 import {sendEmail} from './providers/email.js';
 
@@ -49,7 +49,7 @@ async function handleChat(request,env){
   const safe=sanitizePublicChatInput(raw);
   const history=Array.isArray(body.history)?body.history.slice(-6).map(x=>({role:x.role==='assistant'?'assistant':'user',text:sanitizePublicChatInput(textLimit(x.text,1500))})):[];
   const context=history.length?history.map(x=>`${x.role==='assistant'?'Assistant':'User'}: ${x.text}`).join('\n')+'\nUser: '+safe:safe;
-  const result=await openAiText(env,{risk,model:chooseModel(env,{risk,complexity:context.length>1600?'complex':'simple'}),instructions:chatbotInstructions({knowledge,disclaimer}),input:context});
+  const result=await generateText(env,{risk,model:chooseModel(env,{risk,complexity:context.length>1600?'complex':'simple'}),instructions:chatbotInstructions({knowledge,disclaimer}),input:context});
   return json({ok:true,answer:result.text,disclaimer,risk,model:result.model});
 }
 
@@ -170,7 +170,7 @@ async function health(env){
 async function interpretSchedulingCommand(env,db,text){
   const services=await listServices(db); const serviceText=services.map(s=>`${s.id}: ${s.name_es} (${s.duration_minutes} min + ${s.buffer_before_minutes}/${s.buffer_after_minutes} buffer)`).join('\n');
   const instructions=`Extract a scheduling command for Dra. Ydania's office. Return JSON only, no markdown. Never invent missing facts. Schema: {"action":"create|block|cancel|move|query|unknown","patient_name":string|null,"service_id":string|null,"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"end_time":"HH:MM"|null,"booking_id":string|null,"reason":string|null,"missing":string[]}. Current date UTC: ${new Date().toISOString().slice(0,10)}. Clinic UTC offset is -04:00. Services:\n${serviceText}`;
-  const r=await openAiText(env,{instructions,input:text,model:chooseModel(env,{complexity:'simple'})}); return parseJsonText(r.text);
+  const r=await generateText(env,{instructions,input:text,model:chooseModel(env,{complexity:'simple'})}); return parseJsonText(r.text);
 }
 
 async function processStaffCommand(env,db,from,text){
