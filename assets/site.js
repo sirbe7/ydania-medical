@@ -140,9 +140,16 @@ if(floating){
   };
   toggle.addEventListener('click',()=>setOpen(!panel.classList.contains('open')));
   panel.querySelector('.ai-chat-close').addEventListener('click',()=>setOpen(false));
+  const topicPrompts={
+    es:{appointment:'¿Cómo puedo solicitar una cita y cómo funciona el proceso de reserva?',services:'¿Qué servicios ofrece la Dra. Ydania y para qué se usan en términos generales?',location:'¿Dónde está ubicado el consultorio y cómo puedo contactarlo?'},
+    en:{appointment:'How can I request an appointment and how does the booking process work?',services:'What services does Dr. Ydania offer and what are they generally used for?',location:'Where is the office and how can I contact it?'},
+    pt:{appointment:'Como posso solicitar uma consulta e como funciona a reserva?',services:'Quais serviços a Dra. Ydania oferece e para que são usados em geral?',location:'Onde fica o consultório e como posso entrar em contato?'},
+    it:{appointment:'Come posso richiedere un appuntamento e come funziona la prenotazione?',services:'Quali servizi offre la Dott.ssa Ydania e a cosa servono in generale?',location:'Dove si trova lo studio e come posso contattarlo?'},
+    ko:{appointment:'예약은 어떻게 요청하고 절차는 어떻게 진행되나요?',services:'Ydania 의사는 어떤 진료와 시술을 제공하며 일반적으로 어떤 목적으로 사용되나요?',location:'진료실은 어디에 있고 어떻게 연락할 수 있나요?'}
+  };
   panel.querySelectorAll('[data-chat-topic]').forEach(btn=>btn.addEventListener('click',()=>{
     const topic=btn.dataset.chatTopic;
-    const prompt=topic==='appointment'?'¿Cómo puedo solicitar una cita y cómo funciona el proceso de reserva?':topic==='services'?'¿Qué servicios ofrece la Dra. Ydania y para qué se usan en términos generales?':'¿Dónde está ubicado el consultorio y cómo puedo contactarlo?';
+    const prompt=(topicPrompts[lang]||topicPrompts.es)[topic];
     addMsg(btn.textContent,'user');
     askAI(prompt);
   }));
