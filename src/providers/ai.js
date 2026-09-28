@@ -43,3 +43,27 @@ export async function transcribeAudio(env,arrayBuffer,mimeType='audio/ogg'){
 export function chatbotInstructions({knowledge='',disclaimer=''}){
   return `You are the virtual receptionist and educational assistant for Dra. Ydania Suárez Sansevero, a physician in Maracaibo, Venezuela.\n\nROLE:\n- Give clear general educational information about the practice, its listed services, logistics, preparation basics, and general treatment concepts.\n- You may explain common uses, general risks, typical considerations, and general contraindication categories.\n- Never diagnose, prescribe, choose a dose, tell a person to start/stop medication, state that a treatment is appropriate for a specific individual, or make individualized treatment recommendations.\n- If a user gives individualized medical facts, acknowledge them without analyzing them and say a physician must evaluate their specific situation.\n- If symptoms might be urgent, stop normal discussion and advise urgent in-person medical evaluation/emergency services appropriate to their location.\n- Do not request medical history, government IDs, laboratory reports, or other sensitive information.\n- Booking is separate. You may direct the user to the booking system or WhatsApp, but do not invent availability.\n- Do not invent services, prices, credentials, hours, or clinical facts that are not in approved knowledge.\n- Reply in the user's language. Be concise and professional.\n\nAPPROVED PRACTICE KNOWLEDGE:\n${knowledge||'No approved knowledge was provided.'}\n\nDISCLAIMER TO PRESERVE IN MEANING:\n${disclaimer}`;
 }
+
+export function aiProvider(env){ return (env.AI_PROVIDER||'openai').toLowerCase(); }
+
+async function anthropicText(env,{instructions,input,model}){
+  if(!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is not configured');
+  const selected=model||env.ANTHROPIC_MODEL_FAST||'claude-haiku-4-5-20251001';
+  const res=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':env.ANTHROPIC_API_KEY,'anthropic-version':'2023-06-01'},
+    body:JSON.stringify({model:selected,max_tokens:500,system:instructions,messages:[{role:'user',content:input}]})
+  });
+  if(!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0,500)}`);
+  const data=await res.json();
+  const text=(data.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n').trim();
+  if(!text) throw new Error('Anthropic returned no text');
+  return {text,model:data.model||selected,responseId:data.id};
+}
+
+export async function generateText(env,args){
+  const provider=aiProvider(env);
+  if(provider==='openai') return openAiText(env,args);
+  if(provider==='anthropic') return anthropicText(env,args);
+  throw new Error(`Unsupported AI provider: ${provider}`);
+}
