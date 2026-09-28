@@ -104,10 +104,35 @@ if(floating){
   const messages=panel.querySelector('.ai-chat-messages');
   const input=panel.querySelector('input');
   const chatHistory=[];
+  const formatBotMessage=(text='')=>{
+    const escaped=String(text)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;');
+    const lines=escaped.split(/\r?\n/);
+    let html='',inList=false;
+    const closeList=()=>{if(inList){html+='</ul>';inList=false;}};
+    for(const rawLine of lines){
+      const line=rawLine.trim();
+      if(!line){closeList();continue;}
+      const formatted=line.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+      const bullet=formatted.match(/^[-•]\s+(.*)$/);
+      if(bullet){
+        if(!inList){html+='<ul>';inList=true;}
+        html+='<li>'+bullet[1]+'</li>';
+      }else{
+        closeList();
+        html+='<p>'+formatted+'</p>';
+      }
+    }
+    closeList();
+    return html;
+  };
   const addMsg=(text,who='bot')=>{
     const el=document.createElement('div');
     el.className='ai-msg '+(who==='user'?'ai-msg-user':'ai-msg-bot');
-    el.textContent=text;
+    if(who==='user') el.textContent=text;
+    else el.innerHTML=formatBotMessage(text);
     messages.appendChild(el);
     messages.scrollTop=messages.scrollHeight;
   };
