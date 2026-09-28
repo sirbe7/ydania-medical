@@ -1,7 +1,7 @@
 export function json(data,status=200,headers={}){return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers}})};
 export function bad(message,status=400,extra={}){return json({ok:false,error:message,...extra},status)};
 export function requireAdmin(request,env){
-  const expected=env.ADMIN_TOKEN;
+  const expected=env.ADMIN_SECRET||env.ADMIN_TOKEN;
   if(!expected) return false;
   const auth=request.headers.get('Authorization')||'';
   return auth===`Bearer ${expected}`;
