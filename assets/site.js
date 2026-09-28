@@ -212,19 +212,28 @@ if(floating){
   const setOpen=(open)=>{
     panel.classList.toggle('open',open);
     panel.setAttribute('aria-hidden',open?'false':'true');
-    if(!open) panel.classList.remove('minimized','maximized');
+    if(!open) panel.classList.remove('maximized');
     if(open) setTimeout(()=>input.focus(),50);
   };
   toggle.addEventListener('click',()=>setOpen(!panel.classList.contains('open')));
   panel.querySelector('.ai-chat-close').addEventListener('click',()=>setOpen(false));
-  panel.querySelector('.ai-chat-minimize').addEventListener('click',()=>{
-    panel.classList.toggle('minimized');
+  const minimizeButton=panel.querySelector('.ai-chat-minimize');
+  const maximizeButton=panel.querySelector('.ai-chat-maximize');
+  const syncWindowControls=()=>{
+    const expanded=panel.classList.contains('maximized');
+    minimizeButton.classList.toggle('is-enabled',expanded);
+    minimizeButton.setAttribute('aria-disabled',expanded?'false':'true');
+  };
+  minimizeButton.addEventListener('click',()=>{
+    if(!panel.classList.contains('maximized')) return;
     panel.classList.remove('maximized');
+    syncWindowControls();
   });
-  panel.querySelector('.ai-chat-maximize').addEventListener('click',()=>{
+  maximizeButton.addEventListener('click',()=>{
     panel.classList.toggle('maximized');
-    panel.classList.remove('minimized');
+    syncWindowControls();
   });
+  syncWindowControls();
   const topicPrompts={
     es:{appointment:'¿Cómo puedo solicitar una cita y cómo funciona el proceso de reserva?',services:'¿Qué servicios ofrece la Dra. Ydania y para qué se usan en términos generales?',location:'¿Dónde está ubicado el consultorio y cómo puedo contactarlo?'},
     en:{appointment:'How can I request an appointment and how does the booking process work?',services:'What services does Dr. Ydania offer and what are they generally used for?',location:'Where is the office and how can I contact it?'},
