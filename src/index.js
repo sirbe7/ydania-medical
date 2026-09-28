@@ -194,6 +194,15 @@ async function adminDisableKnowledge(request,env,id){
   await audit(db,{actorType:'staff',actorId:'admin',action:'knowledge_disabled',entityType:'knowledge_entry',entityId:id,before,after:{active:0}}); return json({ok:true});
 }
 
+async function adminTestEmail(request,env){
+  if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env);
+  const recipients=String(await getSetting(db,'agenda_email_recipients','Info@DraYdania.com')).split(',').map(x=>x.trim()).filter(Boolean);
+  if(!recipients.length) return bad('No agenda email recipients configured');
+  const sent=await sendEmail(env,{to:recipients,subject:'Prueba del sistema de agenda · Dra. Ydania',text:'Prueba exitosa del sistema automático de agenda de DraYdania.com. El envío de correo está configurado correctamente.'});
+  await audit(db,{actorType:'system_test',actorId:'admin',action:'email_test_sent',entityType:'email',after:{recipients:recipients.map(()=> '[configured recipient]'),provider:sent.provider}});
+  return json({ok:true,provider:sent.provider});
+}
+
 async function adminSaveSettings(request,env){
   if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env); const body=await request.json();
   const allowed=['agenda_email_enabled','agenda_email_hour_local','agenda_email_recipients','slot_step_minutes'];
@@ -464,6 +473,7 @@ async function route(request,env){
     else if(path==='/api/admin/availability-rules'&&request.method==='POST') response=await adminAvailabilityRule(request,env);
     else if(/^\/api\/admin\/availability-rules\/[^/]+\/disable$/.test(path)&&request.method==='POST') response=await adminDisableRule(request,env,path.split('/')[4]);
     else if(path==='/api/admin/settings'&&request.method==='PATCH') response=await adminSaveSettings(request,env);
+    else if(path==='/api/admin/test-email'&&request.method==='POST') response=await adminTestEmail(request,env);
     else if(path==='/api/admin/knowledge'&&request.method==='POST') response=await adminSaveKnowledge(request,env);
     else if(/^\/api\/admin\/knowledge\/[^/]+$/.test(path)&&request.method==='PATCH') response=await adminSaveKnowledge(request,env,path.split('/').pop());
     else if(/^\/api\/admin\/knowledge\/[^/]+\/disable$/.test(path)&&request.method==='POST') response=await adminDisableKnowledge(request,env,path.split('/')[4]);
