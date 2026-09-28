@@ -61,3 +61,7 @@
 .ai-chat-minimize{opacity:.38!important;cursor:default!important}
 .ai-chat-minimize.is-enabled{opacity:.88!important;cursor:pointer!important}
 .ai-chat-minimize.is-enabled:hover{background:rgba(255,255,255,.12)!important;opacity:1!important}
+
+.address-item{align-items:flex-start}
+.address-copy{display:block;max-width:620px;line-height:1.38}
+@media(max-width:560px){.address-copy{max-width:100%;line-height:1.4}}
