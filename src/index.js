@@ -370,6 +370,82 @@ async function emailCommand(message,env){
   catch(e){await recordError(db,'email_command',e,{from,subject:parsed.subject});}
 }
 
+async function verifyResendWebhook(request,raw,env){
+  if(!env.RESEND_WEBHOOK_SECRET) throw new Error('RESEND_WEBHOOK_SECRET is not configured');
+  const id=request.headers.get('svix-id')||'';
+  const timestamp=request.headers.get('svix-timestamp')||'';
+  const signature=request.headers.get('svix-signature')||'';
+  if(!id||!timestamp||!signature) return false;
+  const ts=Number(timestamp);
+  if(!Number.isFinite(ts)||Math.abs(Date.now()/1000-ts)>300) return false;
+  const secretText=String(env.RESEND_WEBHOOK_SECRET).replace(/^whsec_/,'');
+  let keyBytes;
+  try{keyBytes=Uint8Array.from(atob(secretText),c=>c.charCodeAt(0))}catch{return false}
+  const key=await crypto.subtle.importKey('raw',keyBytes,{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const signed=`${id}.${timestamp}.${raw}`;
+  const mac=new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(signed)));
+  const expected=btoa(String.fromCharCode(...mac));
+  const candidates=signature.split(' ').map(x=>x.trim()).filter(Boolean).map(x=>x.includes(',')?x.split(',').slice(1).join(','):x);
+  return candidates.some(sig=>sig===expected);
+}
+
+function extractEmailAddress(value=''){
+  const m=String(value).match(/<([^>]+)>/);
+  return (m?m[1]:String(value)).trim().toLowerCase();
+}
+
+async function resendInboundWebhook(request,env){
+  const db=dbRequired(env);
+  const raw=await request.text();
+  if(!await verifyResendWebhook(request,raw,env)) return bad('Invalid webhook signature',401);
+  const event=JSON.parse(raw);
+  const eventId=request.headers.get('svix-id')||event.id||crypto.randomUUID();
+  const exists=await db.prepare(`SELECT id FROM webhook_events WHERE id=?`).bind(eventId).first();
+  if(exists) return json({ok:true,duplicate:true});
+  await db.prepare(`INSERT INTO webhook_events(id,provider,event_type,external_id,payload_json,created_at) VALUES(?,?,?,?,?,?)`)
+    .bind(eventId,'resend',String(event.type||'unknown'),event.data?.email_id||null,raw,nowIso()).run();
+  if(event.type!=='email.received'){
+    await db.prepare(`UPDATE webhook_events SET processed_at=? WHERE id=?`).bind(nowIso(),eventId).run();
+    return json({ok:true});
+  }
+  if(!env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not configured');
+  const emailId=event.data?.email_id;
+  if(!emailId) throw new Error('Resend email.received event missing email_id');
+  const res=await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}`,{headers:{Authorization:`Bearer ${env.RESEND_API_KEY}`}});
+  if(!res.ok) throw new Error(`Resend received email fetch ${res.status}: ${(await res.text()).slice(0,400)}`);
+  const email=await res.json();
+  const recipient=String(await getSetting(db,'scheduling_email_address','agenda@agenda.draydania.com')).toLowerCase();
+  const to=(email.to||[]).map(x=>String(x).toLowerCase());
+  if(!to.some(x=>x.includes(recipient))){
+    await db.prepare(`UPDATE webhook_events SET processed_at=? WHERE id=?`).bind(nowIso(),eventId).run();
+    return json({ok:true,ignored:true});
+  }
+  const from=extractEmailAddress(email.from||event.data?.from||'');
+  const allowed=String(await getSetting(db,'scheduling_email_senders','')).toLowerCase().split(',').map(x=>x.trim()).filter(Boolean);
+  if(!allowed.includes(from)){
+    await recordError(db,'resend.email_command',new Error('Unauthorized sender'),{from,email_id:emailId});
+    await db.prepare(`UPDATE webhook_events SET processed_at=? WHERE id=?`).bind(nowIso(),eventId).run();
+    return json({ok:true,ignored:true});
+  }
+  const text=[email.subject,email.text].filter(Boolean).join('\n').trim();
+  if(!text){
+    await db.prepare(`UPDATE webhook_events SET processed_at=? WHERE id=?`).bind(nowIso(),eventId).run();
+    return json({ok:true,ignored:true});
+  }
+  try{
+    const reply=await processStaffCommand(env,db,`email:${from}`,text);
+    await sendEmail(env,{to:from,subject:`Re: ${email.subject||'Agenda'}`,text:reply});
+    await audit(db,{actorType:'staff_email',actorId:from,action:'email_command_processed',entityType:'email',entityId:emailId,after:{subject:email.subject||null}});
+  }catch(e){
+    await recordError(db,'resend.email_command',e,{from,email_id:emailId,subject:email.subject||null});
+    try{await sendEmail(env,{to:from,subject:`Re: ${email.subject||'Agenda'}`,text:'Ocurrió un error y no hice ningún cambio en la agenda. Revisa el panel o intenta nuevamente.'})}catch{}
+    throw e;
+  }finally{
+    await db.prepare(`UPDATE webhook_events SET processed_at=? WHERE id=?`).bind(nowIso(),eventId).run();
+  }
+  return json({ok:true});
+}
+
 async function route(request,env){
   const url=new URL(request.url); const path=url.pathname; const cors=corsHeaders(request);
   if(request.method==='OPTIONS') return new Response(null,{status:204,headers:cors});
@@ -393,6 +469,7 @@ async function route(request,env){
     else if(/^\/api\/admin\/knowledge\/[^/]+\/disable$/.test(path)&&request.method==='POST') response=await adminDisableKnowledge(request,env,path.split('/')[4]);
     else if(/^\/api\/admin\/bookings\/[^/]+\/(approve|decline|cancel)$/.test(path)&&request.method==='POST'){const parts=path.split('/'); const action=parts.pop(),id=parts.pop(); response=await updateBookingStatus(request,env,id,action==='approve'?'confirmed':action==='decline'?'declined':'cancelled');}
     else if(path==='/api/webhooks/ycloud'&&request.method==='POST') response=await ycloudWebhook(request,env);
+    else if(path==='/api/webhooks/resend'&&request.method==='POST') response=await resendInboundWebhook(request,env);
     else return env.ASSETS?env.ASSETS.fetch(request):new Response('Not found',{status:404});
     for(const [k,v] of Object.entries(cors)) response.headers.set(k,v); return response;
   }catch(e){if(env.DB) await recordError(env.DB,'http',e,{path,method:request.method,request_id:requestId(request)}); const r=bad('Service temporarily unavailable',503,{request_id:requestId(request)}); for(const [k,v] of Object.entries(cors)) r.headers.set(k,v); return r;}
