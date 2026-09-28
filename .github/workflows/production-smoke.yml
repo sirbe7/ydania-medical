@@ -1,0 +1,43 @@
+name: Production smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "admin/**"
+      - "booking/**"
+      - "assets/**"
+      - "wrangler.jsonc"
+      - ".github/workflows/production-smoke.yml"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+    steps:
+      - name: Wait for Cloudflare deployment
+        run: sleep 25
+      - name: Health and services
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error https://draydania.com/api/health > /tmp/health.json
+          node -e "const x=require('/tmp/health.json'); if(!x.ok||!x.components?.database?.ok||!x.components?.openai?.ok) process.exit(1); console.log('Health OK');"
+          curl --fail --silent --show-error https://draydania.com/api/services > /tmp/services.json
+          node -e "const x=require('/tmp/services.json'); if(!x.ok||!Array.isArray(x.services)||!x.services.length) process.exit(1); console.log('Services OK');"
+      - name: Admin access controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --output /tmp/noauth.json --write-out '%{http_code}' https://draydania.com/api/admin/summary)"
+          test "$CODE" = "401"
+          curl --fail --silent --show-error -H "Authorization: Bearer $ADMIN_SECRET" https://draydania.com/api/admin/summary > /tmp/admin.json
+          node -e "const x=require('/tmp/admin.json'); if(!x.ok) process.exit(1); console.log('Admin OK');"
+      - name: AI receptionist
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Content-Type: application/json"             --data '{"message":"¿Dónde está ubicado el consultorio?","language":"es","history":[]}'             https://draydania.com/api/chat > /tmp/chat.json
+          node -e "const x=require('/tmp/chat.json'); if(!x.ok||!x.answer||x.answer.length<20) process.exit(1); console.log('AI OK:',x.model);"
