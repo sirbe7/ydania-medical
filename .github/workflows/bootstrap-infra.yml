@@ -1,0 +1,115 @@
+name: Bootstrap Phase 1 infrastructure
+
+on:
+  push:
+    paths:
+      - ".github/workflows/bootstrap-infra.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$OPENAI_API_KEY"
+          test -n "$ADMIN_SECRET"
+          echo "Required secrets are present."
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Create or locate D1 database
+        id: d1
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 list --json > /tmp/d1-list.json
+          DB_ID="$(node -e "const a=require('/tmp/d1-list.json'); const d=a.find(x=>x.name==='ydania-scheduling'); if(d) process.stdout.write(d.uuid||d.id||'');")"
+          if [ -z "$DB_ID" ]; then
+            npx wrangler d1 create ydania-scheduling --json > /tmp/d1-create.json
+            DB_ID="$(node -e "const x=require('/tmp/d1-create.json'); process.stdout.write(x.uuid||x.id||x.database_id||x.result?.uuid||x.result?.id||'');")"
+          fi
+          test -n "$DB_ID"
+          echo "database_id=$DB_ID" >> "$GITHUB_OUTPUT"
+          echo "D1 database is ready."
+
+      - name: Bind D1 database in Wrangler config
+        env:
+          DB_ID: ${{ steps.d1.outputs.database_id }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path='wrangler.jsonc';
+          const config=JSON.parse(fs.readFileSync(path,'utf8'));
+          config.d1_databases=[{
+            binding:'DB',
+            database_name:'ydania-scheduling',
+            database_id:process.env.DB_ID,
+            migrations_dir:'migrations'
+          }];
+          config.vars={...(config.vars||{}),AI_PROVIDER:'openai',WHATSAPP_PROVIDER:'ycloud'};
+          fs.writeFileSync(path,JSON.stringify(config,null,2)+'\n');
+          NODE
+
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply ydania-scheduling --remote
+
+      - name: Install Worker secrets
+        shell: bash
+        run: |
+          printf '%s' "$OPENAI_API_KEY" | npx wrangler secret put OPENAI_API_KEY
+          printf '%s' "$ADMIN_SECRET" | npx wrangler secret put ADMIN_SECRET
+          LOG_HASH_SALT="$(openssl rand -hex 32)"
+          printf '%s' "$LOG_HASH_SALT" | npx wrangler secret put LOG_HASH_SALT
+
+      - name: Run automated tests
+        run: npm test
+
+      - name: Deploy Worker
+        run: npx wrangler deploy
+
+      - name: Verify production health
+        shell: bash
+        run: |
+          set -e
+          for i in 1 2 3 4 5; do
+            if curl --fail --silent --show-error https://draydania.com/api/health > /tmp/health.json; then
+              cat /tmp/health.json
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
+      - name: Persist D1 binding in repository
+        shell: bash
+        run: |
+          if git diff --quiet -- wrangler.jsonc; then
+            echo "Wrangler configuration already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wrangler.jsonc
+          git commit -m "Attach ydania-scheduling D1 database"
+          git push
