@@ -1,0 +1,18 @@
+name: Verify Level 2 chatbot
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-level2-chat.yml"
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sleep 30
+      - name: Test general medical education response
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error             -H "Content-Type: application/json"             --data '{"message":"¿Cuáles son los riesgos comunes y las contraindicaciones generales de la toxina botulínica?","language":"es","history":[]}'             https://draydania.com/api/chat > /tmp/chat.json
+          cat /tmp/chat.json
+          node -e "const x=require('/tmp/chat.json'); if(!x.ok||!x.answer||x.answer.length<120||x.risk!=='normal') process.exit(1); console.log('Level 2 chatbot response verified');"
