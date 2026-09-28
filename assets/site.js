@@ -1,5 +1,49 @@
 document.querySelectorAll('[data-year]').forEach(el=>el.textContent=new Date().getFullYear());
 
+const languageOptions=[
+  {code:'es',short:'ES',label:'Español',href:'/es/'},
+  {code:'en',short:'EN',label:'English',href:'/en/'},
+  {code:'pt',short:'PT',label:'Português',href:'/pt/'},
+  {code:'it',short:'IT',label:'Italiano',href:'/it/'},
+  {code:'ko',short:'KO',label:'한국어',href:'/ko/'}
+];
+const pageLang=(document.documentElement.lang||'es').slice(0,2);
+const currentLanguage=languageOptions.find(x=>x.code===pageLang)||languageOptions[0];
+
+const oldLangLink=document.querySelector('.links .lang');
+if(oldLangLink){
+  const selector=document.createElement('div');
+  selector.className='language-selector';
+  selector.innerHTML=`
+    <button class="language-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Language">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 12h18M12 3c2.4 2.4 3.7 5.4 3.7 9S14.4 18.6 12 21M12 3C9.6 5.4 8.3 8.4 8.3 12S9.6 18.6 12 21" fill="none" stroke="currentColor" stroke-width="1.35"/></svg>
+      <span>${currentLanguage.short}</span>
+      <svg class="language-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="language-dropdown" role="menu">
+      ${languageOptions.map(x=>`<a role="menuitem" href="${x.href}" class="${x.code===currentLanguage.code?'is-current':''}"><span>${x.label}</span>${x.code===currentLanguage.code?'<span class="language-check">✓</span>':''}</a>`).join('')}
+    </div>
+  `;
+  oldLangLink.replaceWith(selector);
+  const trigger=selector.querySelector('.language-trigger');
+  const dropdown=selector.querySelector('.language-dropdown');
+  const setLanguageMenu=open=>{
+    selector.classList.toggle('open',open);
+    trigger.setAttribute('aria-expanded',open?'true':'false');
+  };
+  trigger.addEventListener('click',e=>{e.stopPropagation();setLanguageMenu(!selector.classList.contains('open'));});
+  document.addEventListener('click',e=>{if(!selector.contains(e.target))setLanguageMenu(false);});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')setLanguageMenu(false);});
+}
+
+const footerLangMenu=document.querySelector('#idiomas .language-menu');
+if(footerLangMenu){
+  footerLangMenu.innerHTML=languageOptions.map((x,i)=>`<a href="${x.href}" class="${x.code===currentLanguage.code?'active-lang':''}">${x.label}</a>${i<languageOptions.length-1?'<span class="language-separator" aria-hidden="true">·</span>':''}`).join('');
+  const eyebrow=footerLangMenu.closest('#idiomas')?.querySelector('.eyebrow');
+  if(eyebrow) eyebrow.remove();
+}
+
+
 const scrollTopButton=document.querySelector('.scroll-top');
 if(scrollTopButton){
   const updateScrollTop=()=>scrollTopButton.classList.toggle('visible',window.scrollY>320);
@@ -67,11 +111,11 @@ if(heroCarousel){
 
 
 const chatbotCopy={
-  es:{title:'Asistente virtual',welcome:'Hola. Puedo ayudarte con información general sobre servicios, ubicación y cómo solicitar una consulta.',placeholder:'Escribe tu pregunta…',send:'Enviar',privacy:'No compartas información médica sensible aquí. Para atención personalizada, usa WhatsApp.',fallback:'Puedo orientarte sobre servicios, ubicación o cómo solicitar una consulta. Para una pregunta clínica o personal, comunícate por WhatsApp.',appointment:'Para solicitar una consulta, puedes usar el botón de WhatsApp del sitio y escribir directamente al consultorio.',services:'La Dra. Ydania ofrece atención en medicina estética, control de peso y metabolismo, armonización facial, radiofrecuencia, PRP y composición corporal. La indicación depende de una valoración médica.',location:'El consultorio está en Av. 3G, Edif. Mini Center Veras Altas, Planta Baja, Local Nº 66-149, sector Las Mercedes, Maracaibo, Zulia.',whatsapp:'Abrir WhatsApp',qAppointment:'Consulta',qServices:'Servicios',qLocation:'Ubicación'},
-  en:{title:'Virtual assistant',welcome:'Hi. I can help with general information about services, location, and how to request a consultation.',placeholder:'Type your question…',send:'Send',privacy:'Do not share sensitive medical information here. For personalized care, use WhatsApp.',fallback:'I can help with services, location, or how to request a consultation. For clinical or personal questions, please contact the office on WhatsApp.',appointment:'To request a consultation, use the WhatsApp button on this site to contact the office directly.',services:'Dr. Ydania provides medical aesthetics, weight and metabolism care, facial harmonization, radiofrequency, PRP, and body composition services. Treatment depends on a medical evaluation.',location:'The office is at Av. 3G, Edif. Mini Center Veras Altas, Ground Floor, Local Nº 66-149, Las Mercedes, Maracaibo, Zulia.',whatsapp:'Open WhatsApp',qAppointment:'Consultation',qServices:'Services',qLocation:'Location'},
-  pt:{title:'Assistente virtual',welcome:'Olá. Posso ajudar com informações gerais sobre serviços, localização e como solicitar uma consulta.',placeholder:'Digite sua pergunta…',send:'Enviar',privacy:'Não compartilhe informações médicas sensíveis aqui. Para atendimento personalizado, use o WhatsApp.',fallback:'Posso orientar sobre serviços, localização ou como solicitar uma consulta. Para dúvidas clínicas ou pessoais, fale com o consultório pelo WhatsApp.',appointment:'Para solicitar uma consulta, use o botão do WhatsApp deste site para falar diretamente com o consultório.',services:'A Dra. Ydania oferece medicina estética, controle de peso e metabolismo, harmonização facial, radiofrequência, PRP e composição corporal. A indicação depende de avaliação médica.',location:'O consultório fica na Av. 3G, Edif. Mini Center Veras Altas, térreo, Local Nº 66-149, Las Mercedes, Maracaibo, Zulia.',whatsapp:'Abrir WhatsApp',qAppointment:'Consulta',qServices:'Serviços',qLocation:'Localização'},
-  it:{title:'Assistente virtuale',welcome:'Ciao. Posso aiutarti con informazioni generali su servizi, posizione e come richiedere una consulenza.',placeholder:'Scrivi la tua domanda…',send:'Invia',privacy:'Non condividere informazioni mediche sensibili qui. Per assistenza personalizzata, usa WhatsApp.',fallback:'Posso aiutarti con servizi, posizione o come richiedere una consulenza. Per domande cliniche o personali, contatta lo studio su WhatsApp.',appointment:'Per richiedere una consulenza, usa il pulsante WhatsApp del sito per contattare direttamente lo studio.',services:'La Dott.ssa Ydania offre medicina estetica, controllo del peso e metabolismo, armonizzazione facciale, radiofrequenza, PRP e composizione corporea. Il trattamento dipende da una valutazione medica.',location:'Lo studio si trova in Av. 3G, Edif. Mini Center Veras Altas, piano terra, Local Nº 66-149, Las Mercedes, Maracaibo, Zulia.',whatsapp:'Apri WhatsApp',qAppointment:'Consulenza',qServices:'Servizi',qLocation:'Posizione'},
-  ko:{title:'가상 안내 도우미',welcome:'안녕하세요. 진료 분야, 위치, 상담 요청 방법에 대한 일반 정보를 안내해 드릴 수 있습니다.',placeholder:'질문을 입력하세요…',send:'보내기',privacy:'민감한 의료 정보는 여기에 입력하지 마세요. 개인 상담은 WhatsApp을 이용해 주세요.',fallback:'진료 분야, 위치, 상담 요청 방법을 안내할 수 있습니다. 개인적이거나 임상적인 질문은 WhatsApp으로 문의해 주세요.',appointment:'상담을 요청하려면 사이트의 WhatsApp 버튼을 이용해 진료실로 직접 문의하세요.',services:'Ydania 의사는 미용의학, 체중 및 대사 관리, 안면 조화, 고주파, PRP, 체성분 관리를 제공합니다. 치료 여부는 의학적 평가 후 결정됩니다.',location:'진료실: Av. 3G, Edif. Mini Center Veras Altas, Ground Floor, Local Nº 66-149, Las Mercedes, Maracaibo, Zulia.',whatsapp:'WhatsApp 열기',qAppointment:'상담',qServices:'진료 분야',qLocation:'위치'}
+  es:{title:'Dra. Ydania',subtitle:'Asistente de orientación',welcome:'Hola. Puedo ayudarte con información general sobre servicios, ubicación y cómo solicitar una consulta.',placeholder:'Escribe tu pregunta…',send:'Enviar',privacy:'No compartas información médica sensible aquí. Para atención personalizada, usa WhatsApp.',fallback:'Puedo orientarte sobre servicios, ubicación o cómo solicitar una consulta. Para una pregunta clínica o personal, comunícate por WhatsApp.',appointment:'Para solicitar una consulta, puedes usar el botón de WhatsApp del sitio y escribir directamente al consultorio.',services:'La Dra. Ydania ofrece atención en medicina estética, control de peso y metabolismo, armonización facial, radiofrecuencia, PRP y composición corporal. La indicación depende de una valoración médica.',location:'El consultorio está en Av. 3G, Edif. Mini Center Veras Altas, Planta Baja, Local Nº 66-149, sector Las Mercedes, Maracaibo, Zulia.',whatsapp:'Abrir WhatsApp',qAppointment:'Consulta',qServices:'Servicios',qLocation:'Ubicación'},
+  en:{title:'Dr. Ydania',subtitle:'Patient information assistant',welcome:'Hi. I can help with general information about services, location, and how to request a consultation.',placeholder:'Type your question…',send:'Send',privacy:'Do not share sensitive medical information here. For personalized care, use WhatsApp.',fallback:'I can help with services, location, or how to request a consultation. For clinical or personal questions, please contact the office on WhatsApp.',appointment:'To request a consultation, use the WhatsApp button on this site to contact the office directly.',services:'Dr. Ydania provides medical aesthetics, weight and metabolism care, facial harmonization, radiofrequency, PRP, and body composition services. Treatment depends on a medical evaluation.',location:'The office is at Av. 3G, Edif. Mini Center Veras Altas, Ground Floor, Local Nº 66-149, Las Mercedes, Maracaibo, Zulia.',whatsapp:'Open WhatsApp',qAppointment:'Consultation',qServices:'Services',qLocation:'Location'},
+  pt:{title:'Dra. Ydania',subtitle:'Assistente de orientação',welcome:'Olá. Posso ajudar com informações gerais sobre serviços, localização e como solicitar uma consulta.',placeholder:'Digite sua pergunta…',send:'Enviar',privacy:'Não compartilhe informações médicas sensíveis aqui. Para atendimento personalizado, use o WhatsApp.',fallback:'Posso orientar sobre serviços, localização ou como solicitar uma consulta. Para dúvidas clínicas ou pessoais, fale com o consultório pelo WhatsApp.',appointment:'Para solicitar uma consulta, use o botão do WhatsApp deste site para falar diretamente com o consultório.',services:'A Dra. Ydania oferece medicina estética, controle de peso e metabolismo, harmonização facial, radiofrequência, PRP e composição corporal. A indicação depende de avaliação médica.',location:'O consultório fica na Av. 3G, Edif. Mini Center Veras Altas, térreo, Local Nº 66-149, Las Mercedes, Maracaibo, Zulia.',whatsapp:'Abrir WhatsApp',qAppointment:'Consulta',qServices:'Serviços',qLocation:'Localização'},
+  it:{title:'Dott.ssa Ydania',subtitle:'Assistente informativo',welcome:'Ciao. Posso aiutarti con informazioni generali su servizi, posizione e come richiedere una consulenza.',placeholder:'Scrivi la tua domanda…',send:'Invia',privacy:'Non condividere informazioni mediche sensibili qui. Per assistenza personalizzata, usa WhatsApp.',fallback:'Posso aiutarti con servizi, posizione o come richiedere una consulenza. Per domande cliniche o personali, contatta lo studio su WhatsApp.',appointment:'Per richiedere una consulenza, usa il pulsante WhatsApp del sito per contattare direttamente lo studio.',services:'La Dott.ssa Ydania offre medicina estetica, controllo del peso e metabolismo, armonizzazione facciale, radiofrequenza, PRP e composizione corporea. Il trattamento dipende da una valutazione medica.',location:'Lo studio si trova in Av. 3G, Edif. Mini Center Veras Altas, piano terra, Local Nº 66-149, Las Mercedes, Maracaibo, Zulia.',whatsapp:'Apri WhatsApp',qAppointment:'Consulenza',qServices:'Servizi',qLocation:'Posizione'},
+  ko:{title:'Ydania 의사',subtitle:'진료 안내 도우미',welcome:'안녕하세요. 진료 분야, 위치, 상담 요청 방법에 대한 일반 정보를 안내해 드릴 수 있습니다.',placeholder:'질문을 입력하세요…',send:'보내기',privacy:'민감한 의료 정보는 여기에 입력하지 마세요. 개인 상담은 WhatsApp을 이용해 주세요.',fallback:'진료 분야, 위치, 상담 요청 방법을 안내할 수 있습니다. 개인적이거나 임상적인 질문은 WhatsApp으로 문의해 주세요.',appointment:'상담을 요청하려면 사이트의 WhatsApp 버튼을 이용해 진료실로 직접 문의하세요.',services:'Ydania 의사는 미용의학, 체중 및 대사 관리, 안면 조화, 고주파, PRP, 체성분 관리를 제공합니다. 치료 여부는 의학적 평가 후 결정됩니다.',location:'진료실: Av. 3G, Edif. Mini Center Veras Altas, Ground Floor, Local Nº 66-149, Las Mercedes, Maracaibo, Zulia.',whatsapp:'WhatsApp 열기',qAppointment:'상담',qServices:'진료 분야',qLocation:'위치'}
 };
 const lang=(document.documentElement.lang||'es').slice(0,2);
 const chatText=chatbotCopy[lang]||chatbotCopy.es;
@@ -88,7 +132,14 @@ if(floating){
   panel.className='ai-chat-panel';
   panel.setAttribute('aria-hidden','true');
   panel.innerHTML=`
-    <div class="ai-chat-head"><strong>${chatText.title}</strong><button class="ai-chat-close" type="button" aria-label="Close">×</button></div>
+    <div class="ai-chat-head">
+      <div class="ai-chat-identity"><strong>${chatText.title}</strong><span>${chatText.subtitle||''}</span></div>
+      <div class="ai-chat-window-actions">
+        <button class="ai-chat-minimize" type="button" aria-label="Minimize chat" title="Minimize">−</button>
+        <button class="ai-chat-maximize" type="button" aria-label="Maximize chat" title="Maximize">□</button>
+        <button class="ai-chat-close" type="button" aria-label="Close chat" title="Close">×</button>
+      </div>
+    </div>
     <div class="ai-chat-messages"><div class="ai-msg ai-msg-bot">${chatText.welcome}</div></div>
     <div class="ai-chat-quick">
       <button type="button" data-chat-topic="appointment">Consulta</button>
@@ -161,10 +212,19 @@ if(floating){
   const setOpen=(open)=>{
     panel.classList.toggle('open',open);
     panel.setAttribute('aria-hidden',open?'false':'true');
+    if(!open) panel.classList.remove('minimized','maximized');
     if(open) setTimeout(()=>input.focus(),50);
   };
   toggle.addEventListener('click',()=>setOpen(!panel.classList.contains('open')));
   panel.querySelector('.ai-chat-close').addEventListener('click',()=>setOpen(false));
+  panel.querySelector('.ai-chat-minimize').addEventListener('click',()=>{
+    panel.classList.toggle('minimized');
+    panel.classList.remove('maximized');
+  });
+  panel.querySelector('.ai-chat-maximize').addEventListener('click',()=>{
+    panel.classList.toggle('maximized');
+    panel.classList.remove('minimized');
+  });
   const topicPrompts={
     es:{appointment:'¿Cómo puedo solicitar una cita y cómo funciona el proceso de reserva?',services:'¿Qué servicios ofrece la Dra. Ydania y para qué se usan en términos generales?',location:'¿Dónde está ubicado el consultorio y cómo puedo contactarlo?'},
     en:{appointment:'How can I request an appointment and how does the booking process work?',services:'What services does Dr. Ydania offer and what are they generally used for?',location:'Where is the office and how can I contact it?'},
