@@ -118,24 +118,7 @@ if(floating){
     if(/ubic|direc|address|where|local|indirizzo|endereço|위치/.test(q)) return chatText.location;
     return chatText.fallback;
   };
-  const setOpen=(open)=>{
-    panel.classList.toggle('open',open);
-    panel.setAttribute('aria-hidden',open?'false':'true');
-    if(open) setTimeout(()=>input.focus(),50);
-  };
-  toggle.addEventListener('click',()=>setOpen(!panel.classList.contains('open')));
-  panel.querySelector('.ai-chat-close').addEventListener('click',()=>setOpen(false));
-  panel.querySelectorAll('[data-chat-topic]').forEach(btn=>btn.addEventListener('click',()=>{
-    const topic=btn.dataset.chatTopic;
-    addMsg(btn.textContent,'user');
-    addMsg(chatText[topic]||chatText.fallback);
-  }));
-  panel.querySelector('.ai-chat-form').addEventListener('submit',async e=>{
-    e.preventDefault();
-    const value=input.value.trim();
-    if(!value)return;
-    addMsg(value,'user');
-    input.value='';
+  const askAI=async(value)=>{
     const prior=chatHistory.slice(-6);
     chatHistory.push({role:'user',text:value});
     try{
@@ -145,11 +128,30 @@ if(floating){
       addMsg(data.answer);
       chatHistory.push({role:'assistant',text:data.answer});
       const privacy=panel.querySelector('.ai-chat-privacy');
-      if(data.disclaimer)privacy.textContent=data.disclaimer+' '+chatText.privacy;
+      if(data.disclaimer) privacy.textContent=data.disclaimer+' '+chatText.privacy;
     }catch(err){
-      const fallback=answer(value);
-      addMsg(fallback);
-      chatHistory.push({role:'assistant',text:fallback});
+      addMsg(lang==='es'?'El asistente de IA no está disponible en este momento. Intenta nuevamente en unos segundos.':chatText.fallback);
     }
+  };
+  const setOpen=(open)=>{
+    panel.classList.toggle('open',open);
+    panel.setAttribute('aria-hidden',open?'false':'true');
+    if(open) setTimeout(()=>input.focus(),50);
+  };
+  toggle.addEventListener('click',()=>setOpen(!panel.classList.contains('open')));
+  panel.querySelector('.ai-chat-close').addEventListener('click',()=>setOpen(false));
+  panel.querySelectorAll('[data-chat-topic]').forEach(btn=>btn.addEventListener('click',()=>{
+    const topic=btn.dataset.chatTopic;
+    const prompt=topic==='appointment'?'¿Cómo puedo solicitar una cita y cómo funciona el proceso de reserva?':topic==='services'?'¿Qué servicios ofrece la Dra. Ydania y para qué se usan en términos generales?':'¿Dónde está ubicado el consultorio y cómo puedo contactarlo?';
+    addMsg(btn.textContent,'user');
+    askAI(prompt);
+  }));
+  panel.querySelector('.ai-chat-form').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const value=input.value.trim();
+    if(!value)return;
+    addMsg(value,'user');
+    input.value='';
+    await askAI(value);
   });
 }
