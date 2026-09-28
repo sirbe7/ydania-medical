@@ -96,12 +96,14 @@ if(floating){
       <button type="button" data-chat-topic="location">Ubicación</button>
     </div>
     <form class="ai-chat-form"><input type="text" autocomplete="off" placeholder="${chatText.placeholder}" aria-label="${chatText.placeholder}"><button type="submit">${chatText.send}</button></form>
+    <a class="ai-chat-booking-link" href="/booking/">Reservar cita en línea</a>
     <div class="ai-chat-privacy">${chatText.privacy}</div>
   `;
   document.body.appendChild(panel);
 
   const messages=panel.querySelector('.ai-chat-messages');
   const input=panel.querySelector('input');
+  const chatHistory=[];
   const addMsg=(text,who='bot')=>{
     const el=document.createElement('div');
     el.className='ai-msg '+(who==='user'?'ai-msg-user':'ai-msg-bot');
@@ -128,12 +130,26 @@ if(floating){
     addMsg(btn.textContent,'user');
     addMsg(chatText[topic]||chatText.fallback);
   }));
-  panel.querySelector('.ai-chat-form').addEventListener('submit',e=>{
+  panel.querySelector('.ai-chat-form').addEventListener('submit',async e=>{
     e.preventDefault();
     const value=input.value.trim();
     if(!value)return;
     addMsg(value,'user');
     input.value='';
-    window.setTimeout(()=>addMsg(answer(value)),180);
+    const prior=chatHistory.slice(-6);
+    chatHistory.push({role:'user',text:value});
+    try{
+      const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:value,language:lang,history:prior})});
+      const data=await res.json();
+      if(!res.ok||!data.ok)throw new Error(data.error||'AI unavailable');
+      addMsg(data.answer);
+      chatHistory.push({role:'assistant',text:data.answer});
+      const privacy=panel.querySelector('.ai-chat-privacy');
+      if(data.disclaimer)privacy.textContent=data.disclaimer+' '+chatText.privacy;
+    }catch(err){
+      const fallback=answer(value);
+      addMsg(fallback);
+      chatHistory.push({role:'assistant',text:fallback});
+    }
   });
 }
