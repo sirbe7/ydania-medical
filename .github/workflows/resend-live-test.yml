@@ -1,0 +1,22 @@
+name: One-time Resend live test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/resend-live-test.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+    steps:
+      - name: Wait for production deploy
+        run: sleep 30
+      - name: Send authenticated test email
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error             -X POST             -H "Authorization: Bearer $ADMIN_SECRET"             https://draydania.com/api/admin/test-email > /tmp/test.json
+          node -e "const x=require('/tmp/test.json'); if(!x.ok||x.provider!=='resend') process.exit(1); console.log('Resend live email test passed');"
