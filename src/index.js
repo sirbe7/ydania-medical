@@ -119,14 +119,15 @@ async function scheduleReminders(db,bookingId,startAt){
 
 async function adminSummary(request,env){
   if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env);
-  const [pending,today,errors,services,settings]=await Promise.all([
+  const [pending,today,errors,services,settings,auditRows]=await Promise.all([
     db.prepare(`SELECT b.id,b.patient_name,b.patient_phone,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status='pending' ORDER BY b.start_at LIMIT 50`).all(),
     db.prepare(`SELECT b.id,b.patient_name,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status IN ('pending','confirmed') AND date(b.start_at)=date('now') ORDER BY b.start_at`).all(),
     db.prepare(`SELECT id,component,message,created_at FROM error_log WHERE resolved_at IS NULL ORDER BY created_at DESC LIMIT 20`).all(),
     db.prepare(`SELECT * FROM services WHERE active=1 ORDER BY name_es`).all(),
-    db.prepare(`SELECT key,value FROM settings`).all()
+    db.prepare(`SELECT key,value FROM settings`).all(),
+    db.prepare(`SELECT actor_type,actor_id,action,entity_type,entity_id,created_at FROM audit_log ORDER BY created_at DESC LIMIT 40`).all()
   ]);
-  return json({ok:true,pending:pending.results||[],today:today.results||[],errors:errors.results||[],services:services.results||[],settings:Object.fromEntries((settings.results||[]).map(x=>[x.key,x.value]))});
+  return json({ok:true,pending:pending.results||[],today:today.results||[],errors:errors.results||[],services:services.results||[],settings:Object.fromEntries((settings.results||[]).map(x=>[x.key,x.value])),audit:auditRows.results||[]});
 }
 
 async function adminSaveService(request,env,id){
@@ -281,6 +282,6 @@ async function route(request,env){
 
 export default {
   fetch: route,
-  async scheduled(controller,env,ctx){if(!env.DB)return; ctx.waitUntil((async()=>{try{await expirePending(env.DB);await runReminderJobs(env,env.DB);await maybeSendAgenda(env,env.DB)}catch(e){await recordError(env.DB,'scheduled',e,{cron:controller.cron})}})())},
+  async scheduled(controller,env,ctx){if(!env.DB)return; ctx.waitUntil((async()=>{try{await setSetting(env.DB,'health_last_cron',nowIso());await expirePending(env.DB);await runReminderJobs(env,env.DB);await maybeSendAgenda(env,env.DB)}catch(e){await recordError(env.DB,'scheduled',e,{cron:controller.cron})}})())},
   async email(message,env,ctx){ctx.waitUntil(emailCommand(message,env))}
 };
