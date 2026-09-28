@@ -36,6 +36,17 @@ async function approvedKnowledge(db,language='es'){
   return (r.results||[]).map(x=>`[${x.category}] ${x.title}: ${x.content}`).join('\n');
 }
 
+function stripRoutineChatDisclaimer(text='',language='es'){
+  let out=String(text).trim();
+  const patterns=[
+    /\s*Este asistente ofrece información educativa general(?: generada con IA)?[.;:]?\s*No proporciona diagnósticos ni recomendaciones médicas personalizadas\.?(?:\s*Las decisiones de tratamiento requieren valoración de la Dra\. Ydania u otro médico calificado\.?)?\s*$/i,
+    /\s*Este asistente ofrece información educativa general[.;:]?\s*no diagnostica ni recomienda tratamientos personalizados\.?(?:\s*La indicación requiere valoración de la Dra\. Ydania u otro médico calificado\.?)?\s*$/i,
+    /\s*This assistant provides general educational information(?: generated with AI)?[.;:]?\s*It does not provide diagnosis or personalized medical advice\.?(?:\s*Treatment decisions require evaluation by Dra\. Ydania or another qualified physician\.?)?\s*$/i
+  ];
+  for(const p of patterns) out=out.replace(p,'').trim();
+  return out;
+}
+
 async function handleChat(request,env){
   const db=dbRequired(env); const body=await request.json();
   const raw=textLimit(body.message,3000); if(!raw) return bad('Message is required');
@@ -50,7 +61,7 @@ async function handleChat(request,env){
   const history=Array.isArray(body.history)?body.history.slice(-6).map(x=>({role:x.role==='assistant'?'assistant':'user',text:sanitizePublicChatInput(textLimit(x.text,1500))})):[];
   const context=history.length?history.map(x=>`${x.role==='assistant'?'Assistant':'User'}: ${x.text}`).join('\n')+'\nUser: '+safe:safe;
   const result=await generateText(env,{risk,model:chooseModel(env,{risk,complexity:context.length>1600?'complex':'simple'}),instructions:chatbotInstructions({knowledge,disclaimer}),input:context});
-  return json({ok:true,answer:result.text,disclaimer,risk,model:result.model});
+  return json({ok:true,answer:stripRoutineChatDisclaimer(result.text,language),disclaimer,risk,model:result.model});
 }
 
 async function availabilityFor(db,service,date){
