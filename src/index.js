@@ -119,9 +119,13 @@ async function scheduleReminders(db,bookingId,startAt){
 
 async function adminSummary(request,env){
   if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env);
+  const offset=Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES));
+  const localToday=utcIsoToLocalParts(nowIso(),offset).date;
+  const todayStart=localDateTimeToUtcIso(localToday,'00:00',offset);
+  const todayEnd=new Date(new Date(todayStart).getTime()+DAY_MS).toISOString();
   const [pending,today,errors,services,settings,auditRows,rules,blocks,knowledge]=await Promise.all([
     db.prepare(`SELECT b.id,b.patient_name,b.patient_phone,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status='pending' ORDER BY b.start_at LIMIT 50`).all(),
-    db.prepare(`SELECT b.id,b.patient_name,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status IN ('pending','confirmed') AND date(b.start_at)=date('now') ORDER BY b.start_at`).all(),
+    db.prepare(`SELECT b.id,b.patient_name,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status IN ('pending','confirmed') AND b.start_at>=? AND b.start_at<? ORDER BY b.start_at`).bind(todayStart,todayEnd).all(),
     db.prepare(`SELECT id,component,message,created_at FROM error_log WHERE resolved_at IS NULL ORDER BY created_at DESC LIMIT 20`).all(),
     db.prepare(`SELECT * FROM services WHERE active=1 ORDER BY name_es`).all(),
     db.prepare(`SELECT key,value FROM settings`).all(),
@@ -208,29 +212,99 @@ async function health(env){
 
 async function interpretSchedulingCommand(env,db,text){
   const services=await listServices(db); const serviceText=services.map(s=>`${s.id}: ${s.name_es} (${s.duration_minutes} min + ${s.buffer_before_minutes}/${s.buffer_after_minutes} buffer)`).join('\n');
-  const instructions=`Extract a scheduling command for Dra. Ydania's office. Return JSON only, no markdown. Never invent missing facts. Schema: {"action":"create|block|cancel|move|query|unknown","patient_name":string|null,"service_id":string|null,"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"end_time":"HH:MM"|null,"booking_id":string|null,"reason":string|null,"missing":string[]}. Current date UTC: ${new Date().toISOString().slice(0,10)}. Clinic UTC offset is -04:00. Services:\n${serviceText}`;
+  const offset=Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES));
+  const clinicToday=utcIsoToLocalParts(nowIso(),offset).date;
+  const instructions=`Extract a scheduling command for Dra. Ydania's office. Return JSON only, no markdown. Never invent missing facts. Resolve relative dates such as hoy, mañana, lunes, martes using clinic date ${clinicToday} and UTC offset -04:00. Schema: {"action":"create|block|cancel|move|query|unknown","patient_name":string|null,"patient_phone":string|null,"service_id":string|null,"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"end_time":"HH:MM"|null,"booking_id":string|null,"reason":string|null,"missing":string[]}. For create, patient_name/service_id/date/time are required; patient_phone is optional. For block, date/time/end_time are required. For move, identify the booking by booking_id or patient_name, and date/time are the NEW requested date/time. For cancel, identify by booking_id or patient_name. For query, date is required. If required information is absent, list it in missing. Services:\n${serviceText}`;
   const r=await generateText(env,{instructions,input:text,model:chooseModel(env,{complexity:'simple'})}); return parseJsonText(r.text);
+}
+
+async function findStaffBooking(db,cmd){
+  if(cmd.booking_id){
+    const b=await db.prepare(`SELECT b.*,s.name_es service_name,s.duration_minutes,s.buffer_before_minutes,s.buffer_after_minutes FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.id=? AND b.deleted_at IS NULL AND b.status IN ('pending','confirmed')`).bind(cmd.booking_id).first();
+    return b?{booking:b,ambiguous:false}:null;
+  }
+  if(!cmd.patient_name) return null;
+  const name=`%${String(cmd.patient_name).trim()}%`;
+  let q=`SELECT b.*,s.name_es service_name,s.duration_minutes,s.buffer_before_minutes,s.buffer_after_minutes FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status IN ('pending','confirmed') AND lower(b.patient_name) LIKE lower(?)`;
+  const args=[name];
+  if(cmd.original_date){
+    const offset=DEFAULT_UTC_OFFSET_MINUTES,start=localDateTimeToUtcIso(cmd.original_date,'00:00',offset),end=new Date(new Date(start).getTime()+DAY_MS).toISOString();
+    q+=' AND b.start_at>=? AND b.start_at<?'; args.push(start,end);
+  }
+  q+=' ORDER BY b.start_at LIMIT 5';
+  const rows=(await db.prepare(q).bind(...args).all()).results||[];
+  if(rows.length===1) return {booking:rows[0],ambiguous:false};
+  if(rows.length>1) return {booking:null,ambiguous:true,rows};
+  return null;
 }
 
 async function processStaffCommand(env,db,from,text){
   const cmd=await interpretSchedulingCommand(env,db,text);
   if(cmd.missing?.length) return `No pude completar la instrucción. Falta: ${cmd.missing.join(', ')}.`;
-  if(cmd.action==='query') return 'La consulta de agenda por WhatsApp está conectada. Usa el panel para el detalle mientras terminamos los comandos de consulta avanzada.';
-  if(cmd.action==='block'){
-    const offset=Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES)); const start=localDateTimeToUtcIso(cmd.date,cmd.time,offset); const end=localDateTimeToUtcIso(cmd.date,cmd.end_time,offset); const id=uid('block'); const now=nowIso();
-    await db.prepare(`INSERT INTO blocked_periods(id,start_at,end_at,reason,source,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`).bind(id,start,end,cmd.reason||'Bloqueado por WhatsApp','whatsapp',now,now).run(); await audit(db,{actorType:'staff_whatsapp',actorId:from,action:'blocked_period_created',entityType:'blocked_period',entityId:id,after:cmd}); return `Listo. Bloqueé ${cmd.date} de ${cmd.time} a ${cmd.end_time}.`;
+  const offset=Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES));
+
+  if(cmd.action==='query'){
+    if(!cmd.date) return 'Indícame qué fecha quieres consultar.';
+    const start=localDateTimeToUtcIso(cmd.date,'00:00',offset),end=new Date(new Date(start).getTime()+DAY_MS).toISOString();
+    const rows=(await db.prepare(`SELECT b.id,b.patient_name,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status IN ('pending','confirmed') AND b.start_at>=? AND b.start_at<? ORDER BY b.start_at`).bind(start,end).all()).results||[];
+    if(!rows.length) return `No hay citas en la agenda para ${cmd.date}.`;
+    return `Agenda ${cmd.date}:\n`+rows.map(r=>{const p=utcIsoToLocalParts(r.start_at,offset);return `${p.time} — ${r.patient_name} — ${r.service_name}${r.status==='pending'?' (pendiente)':''} — ID ${r.id}`}).join('\n');
   }
+
+  if(cmd.action==='block'){
+    const start=localDateTimeToUtcIso(cmd.date,cmd.time,offset); const end=localDateTimeToUtcIso(cmd.date,cmd.end_time,offset);
+    if(new Date(end)<=new Date(start)) return 'La hora final debe ser posterior a la hora inicial. No hice cambios.';
+    const id=uid('block'); const now=nowIso();
+    await db.prepare(`INSERT INTO blocked_periods(id,start_at,end_at,reason,source,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`).bind(id,start,end,cmd.reason||'Bloqueado por comando','assistant_command',now,now).run();
+    await audit(db,{actorType:'staff_command',actorId:from,action:'blocked_period_created',entityType:'blocked_period',entityId:id,after:cmd});
+    return `Listo. Bloqueé ${cmd.date} de ${cmd.time} a ${cmd.end_time}.`;
+  }
+
   if(cmd.action==='create'){
-    const service=await getService(db,cmd.service_id); if(!service) return 'No reconocí el servicio. Envíame el nombre exacto del procedimiento.';
-    const offset=Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES)); const start=localDateTimeToUtcIso(cmd.date,cmd.time,offset); const duration=Number(service.duration_minutes), before=Number(service.buffer_before_minutes), after=Number(service.buffer_after_minutes); const reserveStart=new Date(new Date(start).getTime()-before*60_000).toISOString(); const end=new Date(new Date(start).getTime()+duration*60_000).toISOString(); const reserveEnd=new Date(new Date(end).getTime()+after*60_000).toISOString();
+    const service=await getService(db,cmd.service_id); if(!service) return 'No reconocí el servicio. Dime el nombre exacto del procedimiento.';
+    const start=localDateTimeToUtcIso(cmd.date,cmd.time,offset); const duration=Number(service.duration_minutes),before=Number(service.buffer_before_minutes),after=Number(service.buffer_after_minutes);
+    const reserveStart=new Date(new Date(start).getTime()-before*60_000).toISOString(),end=new Date(new Date(start).getTime()+duration*60_000).toISOString(),reserveEnd=new Date(new Date(end).getTime()+after*60_000).toISOString();
     const conflicts=(await db.prepare(`SELECT b.patient_name,b.start_at,b.end_at FROM bookings b WHERE b.deleted_at IS NULL AND b.status IN ('pending','confirmed') AND b.reserve_end_at>? AND b.reserve_start_at<?`).bind(reserveStart,reserveEnd).all()).results||[];
     const blocks=(await db.prepare(`SELECT reason,start_at,end_at FROM blocked_periods WHERE deleted_at IS NULL AND end_at>? AND start_at<?`).bind(reserveStart,reserveEnd).all()).results||[];
-    if(conflicts.length||blocks.length) return `Hay un conflicto en ese horario. No agregué la cita. Revisa disponibilidad o indícame otra hora.`;
-    const id=uid('booking'),token=crypto.randomUUID(),now=nowIso(); const keys=slotKeys(reserveStart,reserveEnd); const stmts=[db.prepare(`INSERT INTO bookings(id,public_token,service_id,patient_name,patient_phone,preferred_language,start_at,end_at,reserve_start_at,reserve_end_at,status,source,approved_at,approved_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,token,service.id,cmd.patient_name||'Paciente',from,'es',start,end,reserveStart,reserveEnd,'confirmed','staff_whatsapp',now,from,now,now),...keys.map(k=>db.prepare(`INSERT INTO booking_locks(slot_key,booking_id,created_at) VALUES(?,?,?)`).bind(k,id,now))];
+    if(conflicts.length||blocks.length) return 'Hay un conflicto en ese horario. No agregué la cita. Indícame otra hora.';
+    const id=uid('booking'),token=crypto.randomUUID(),now=nowIso(),patientPhone=cleanPhone(cmd.patient_phone||''); const keys=slotKeys(reserveStart,reserveEnd);
+    const stmts=[db.prepare(`INSERT INTO bookings(id,public_token,service_id,patient_name,patient_phone,preferred_language,start_at,end_at,reserve_start_at,reserve_end_at,status,source,approved_at,approved_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id,token,service.id,cmd.patient_name||'Paciente',patientPhone,'es',start,end,reserveStart,reserveEnd,'confirmed','staff_command',now,from,now,now),...keys.map(k=>db.prepare(`INSERT INTO booking_locks(slot_key,booking_id,created_at) VALUES(?,?,?)`).bind(k,id,now))];
     try{await db.batch(stmts)}catch(e){if(String(e).toLowerCase().includes('unique')) return 'Ese horario acaba de ocuparse. No agregué la cita.'; throw e}
-    await scheduleReminders(db,id,start); await audit(db,{actorType:'staff_whatsapp',actorId:from,action:'booking_created',entityType:'booking',entityId:id,after:cmd}); return `Listo. Agregué a ${cmd.patient_name} para ${service.name_es} el ${cmd.date} a las ${cmd.time}.`;
+    if(patientPhone.length>=7) await scheduleReminders(db,id,start);
+    await audit(db,{actorType:'staff_command',actorId:from,action:'booking_created',entityType:'booking',entityId:id,after:{...cmd,patient_phone:patientPhone?'provided':'not_provided'}});
+    return `Listo. Agregué a ${cmd.patient_name} para ${service.name_es} el ${cmd.date} a las ${cmd.time}.${patientPhone?' Se programarán recordatorios por WhatsApp.':' No incluí recordatorios al paciente porque no se proporcionó su número.'}`;
   }
-  return 'No entendí la instrucción de agenda. Puedes decir, por ejemplo: “Agrega a María para toxina botulínica el 6 de octubre a las 2:30”.';
+
+  if(cmd.action==='cancel'){
+    const found=await findStaffBooking(db,cmd);
+    if(found?.ambiguous) return 'Encontré varias citas que coinciden. Consulta la agenda y envíame el ID exacto de la cita que quieres cancelar.';
+    if(!found?.booking) return 'No encontré una cita activa que coincida. No hice cambios.';
+    const b=found.booking,now=nowIso();
+    await db.batch([db.prepare(`UPDATE bookings SET status='cancelled',cancelled_at=?,updated_at=? WHERE id=?`).bind(now,now,b.id),db.prepare(`DELETE FROM booking_locks WHERE booking_id=?`).bind(b.id)]);
+    await audit(db,{actorType:'staff_command',actorId:from,action:'booking_cancelled',entityType:'booking',entityId:b.id,before:{status:b.status},after:{status:'cancelled'}});
+    return `Listo. Cancelé la cita de ${b.patient_name} — ${b.service_name}.`;
+  }
+
+  if(cmd.action==='move'){
+    const found=await findStaffBooking(db,cmd);
+    if(found?.ambiguous) return 'Encontré varias citas que coinciden. Envíame el ID exacto de la cita que quieres mover.';
+    if(!found?.booking) return 'No encontré una cita activa que coincida. No hice cambios.';
+    if(!cmd.date||!cmd.time) return 'Indícame la nueva fecha y hora.';
+    const b=found.booking,start=localDateTimeToUtcIso(cmd.date,cmd.time,offset),duration=Number(b.duration_minutes),before=Number(b.buffer_before_minutes),after=Number(b.buffer_after_minutes);
+    const reserveStart=new Date(new Date(start).getTime()-before*60_000).toISOString(),end=new Date(new Date(start).getTime()+duration*60_000).toISOString(),reserveEnd=new Date(new Date(end).getTime()+after*60_000).toISOString();
+    const conflicts=(await db.prepare(`SELECT id,patient_name FROM bookings WHERE id<>? AND deleted_at IS NULL AND status IN ('pending','confirmed') AND reserve_end_at>? AND reserve_start_at<?`).bind(b.id,reserveStart,reserveEnd).all()).results||[];
+    const blocks=(await db.prepare(`SELECT id,reason FROM blocked_periods WHERE deleted_at IS NULL AND end_at>? AND start_at<?`).bind(reserveStart,reserveEnd).all()).results||[];
+    if(conflicts.length||blocks.length) return 'La nueva hora tiene un conflicto. No moví la cita.';
+    const keys=slotKeys(reserveStart,reserveEnd),now=nowIso();
+    const stmts=[db.prepare(`DELETE FROM booking_locks WHERE booking_id=?`).bind(b.id),...keys.map(k=>db.prepare(`INSERT INTO booking_locks(slot_key,booking_id,created_at) VALUES(?,?,?)`).bind(k,b.id,now)),db.prepare(`UPDATE bookings SET start_at=?,end_at=?,reserve_start_at=?,reserve_end_at=?,updated_at=? WHERE id=?`).bind(start,end,reserveStart,reserveEnd,now,b.id)];
+    try{await db.batch(stmts)}catch(e){return 'La nueva hora acaba de ocuparse. No moví la cita.'}
+    await db.prepare(`UPDATE reminder_jobs SET status='cancelled',updated_at=? WHERE booking_id=? AND status='pending'`).bind(now,b.id).run();
+    if(cleanPhone(b.patient_phone).length>=7) await scheduleReminders(db,b.id,start);
+    await audit(db,{actorType:'staff_command',actorId:from,action:'booking_moved',entityType:'booking',entityId:b.id,before:{start_at:b.start_at},after:{start_at:start}});
+    return `Listo. Moví la cita de ${b.patient_name} al ${cmd.date} a las ${cmd.time}.`;
+  }
+
+  return 'No entendí la instrucción de agenda. Puedes decir: “¿Qué tengo mañana?”, “Bloquéame mañana de 2 a 5”, “Agrega a María para toxina botulínica el martes a las 2:30”, “Mueve a María para el viernes a las 10” o “Cancela la cita de María”.';
 }
 
 async function staffApprovalCommand(env,db,from,input){
@@ -270,7 +344,7 @@ async function runReminderJobs(env,db){
   const jobs=(await db.prepare(`SELECT r.*,b.patient_phone,b.patient_name,b.start_at,s.name_es service_name FROM reminder_jobs r JOIN bookings b ON b.id=r.booking_id JOIN services s ON s.id=b.service_id WHERE r.status='pending' AND r.due_at<=? AND b.status='confirmed' ORDER BY r.due_at LIMIT 25`).bind(nowIso()).all()).results||[];
   for(const j of jobs){
     await db.prepare(`UPDATE reminder_jobs SET status='processing',attempts=attempts+1,updated_at=? WHERE id=?`).bind(nowIso(),j.id).run();
-    try{const msg=j.kind==='24h'?`Recordatorio: tiene una cita con Dra. Ydania mañana. ${j.service_name} — ${j.start_at}`:`Recordatorio: su cita con Dra. Ydania es en aproximadamente 2 horas. ${j.service_name}.`; await sendWhatsAppTemplateOrText(env,j.patient_phone,{templateEnv:j.kind==='24h'?'YCLOUD_TEMPLATE_REMINDER_24H':'YCLOUD_TEMPLATE_REMINDER_2H',text:msg,parameters:[j.patient_name,j.service_name,j.start_at]}); await db.prepare(`UPDATE reminder_jobs SET status='sent',sent_at=?,updated_at=? WHERE id=?`).bind(nowIso(),nowIso(),j.id).run();}
+    try{const offset=Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES)); const lp=utcIsoToLocalParts(j.start_at,offset); const when=`${lp.date} a las ${lp.time}`; const msg=j.kind==='24h'?`Recordatorio: tiene una cita con Dra. Ydania mañana. ${j.service_name} — ${when}`:`Recordatorio: su cita con Dra. Ydania es en aproximadamente 2 horas. ${j.service_name} — ${when}.`; await sendWhatsAppTemplateOrText(env,j.patient_phone,{templateEnv:j.kind==='24h'?'YCLOUD_TEMPLATE_REMINDER_24H':'YCLOUD_TEMPLATE_REMINDER_2H',text:msg,parameters:[j.patient_name,j.service_name,j.start_at]}); await db.prepare(`UPDATE reminder_jobs SET status='sent',sent_at=?,updated_at=? WHERE id=?`).bind(nowIso(),nowIso(),j.id).run();}
     catch(e){await db.prepare(`UPDATE reminder_jobs SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END,last_error=?,updated_at=? WHERE id=?`).bind(String(e.message||e).slice(0,500),nowIso(),j.id).run(); await recordError(db,'reminder',e,{job_id:j.id,booking_id:j.booking_id})}
   }
 }
