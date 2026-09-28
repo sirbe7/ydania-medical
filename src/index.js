@@ -119,7 +119,7 @@ async function scheduleReminders(db,bookingId,startAt){
 
 async function adminSummary(request,env){
   if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env);
-  const [pending,today,errors,services,settings,auditRows,rules,blocks]=await Promise.all([
+  const [pending,today,errors,services,settings,auditRows,rules,blocks,knowledge]=await Promise.all([
     db.prepare(`SELECT b.id,b.patient_name,b.patient_phone,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status='pending' ORDER BY b.start_at LIMIT 50`).all(),
     db.prepare(`SELECT b.id,b.patient_name,b.start_at,b.status,s.name_es service_name FROM bookings b JOIN services s ON s.id=b.service_id WHERE b.deleted_at IS NULL AND b.status IN ('pending','confirmed') AND date(b.start_at)=date('now') ORDER BY b.start_at`).all(),
     db.prepare(`SELECT id,component,message,created_at FROM error_log WHERE resolved_at IS NULL ORDER BY created_at DESC LIMIT 20`).all(),
@@ -127,9 +127,10 @@ async function adminSummary(request,env){
     db.prepare(`SELECT key,value FROM settings`).all(),
     db.prepare(`SELECT actor_type,actor_id,action,entity_type,entity_id,created_at FROM audit_log ORDER BY created_at DESC LIMIT 40`).all(),
     db.prepare(`SELECT id,weekday,start_time,end_time,enabled FROM availability_rules ORDER BY weekday,start_time`).all(),
-    db.prepare(`SELECT id,start_at,end_at,reason,source FROM blocked_periods WHERE deleted_at IS NULL AND end_at>? ORDER BY start_at LIMIT 50`).bind(nowIso()).all()
+    db.prepare(`SELECT id,start_at,end_at,reason,source FROM blocked_periods WHERE deleted_at IS NULL AND end_at>? ORDER BY start_at LIMIT 50`).bind(nowIso()).all(),
+    db.prepare(`SELECT id,category,title,content,language,active FROM knowledge_entries ORDER BY language,category,title LIMIT 200`).all()
   ]);
-  return json({ok:true,pending:pending.results||[],today:today.results||[],errors:errors.results||[],services:services.results||[],settings:Object.fromEntries((settings.results||[]).map(x=>[x.key,x.value])),audit:auditRows.results||[],availability_rules:rules.results||[],blocks:blocks.results||[]});
+  return json({ok:true,pending:pending.results||[],today:today.results||[],errors:errors.results||[],services:services.results||[],settings:Object.fromEntries((settings.results||[]).map(x=>[x.key,x.value])),audit:auditRows.results||[],availability_rules:rules.results||[],blocks:blocks.results||[],knowledge:knowledge.results||[]});
 }
 
 async function adminCreateService(request,env){
@@ -170,6 +171,23 @@ async function adminAvailabilityRule(request,env){
   if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env); const body=await request.json(); const id=body.id||uid('rule'); const now=nowIso();
   await db.prepare(`INSERT INTO availability_rules(id,weekday,start_time,end_time,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET weekday=excluded.weekday,start_time=excluded.start_time,end_time=excluded.end_time,enabled=excluded.enabled,updated_at=excluded.updated_at`).bind(id,Number(body.weekday),body.start_time,body.end_time,body.enabled===false?0:1,now,now).run();
   await audit(db,{actorType:'staff',actorId:'admin',action:'availability_rule_saved',entityType:'availability_rule',entityId:id,after:body}); return json({ok:true,id});
+}
+
+async function adminSaveKnowledge(request,env,id=null){
+  if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env); const body=await request.json(); const now=nowIso();
+  const recordId=id||uid('kb'); const before=id?await db.prepare(`SELECT * FROM knowledge_entries WHERE id=?`).bind(id).first():null;
+  const category=textLimit(body.category,80),title=textLimit(body.title,180),content=textLimit(body.content,5000),language=textLimit(body.language||'es',5),active=body.active===false?0:1;
+  if(!category||!title||!content) return bad('category, title and content are required');
+  await db.prepare(`INSERT INTO knowledge_entries(id,category,title,content,language,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET category=excluded.category,title=excluded.title,content=excluded.content,language=excluded.language,active=excluded.active,updated_at=excluded.updated_at`)
+    .bind(recordId,category,title,content,language,active,now,now).run();
+  await audit(db,{actorType:'staff',actorId:'admin',action:before?'knowledge_updated':'knowledge_created',entityType:'knowledge_entry',entityId:recordId,before,after:{category,title,content,language,active}});
+  return json({ok:true,id:recordId});
+}
+
+async function adminDisableKnowledge(request,env,id){
+  if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env); const before=await db.prepare(`SELECT * FROM knowledge_entries WHERE id=?`).bind(id).first(); if(!before)return bad('Knowledge entry not found',404); const now=nowIso();
+  await db.prepare(`UPDATE knowledge_entries SET active=0,updated_at=? WHERE id=?`).bind(now,id).run();
+  await audit(db,{actorType:'staff',actorId:'admin',action:'knowledge_disabled',entityType:'knowledge_entry',entityId:id,before,after:{active:0}}); return json({ok:true});
 }
 
 async function adminSaveSettings(request,env){
@@ -296,6 +314,9 @@ async function route(request,env){
     else if(path==='/api/admin/availability-rules'&&request.method==='POST') response=await adminAvailabilityRule(request,env);
     else if(/^\/api\/admin\/availability-rules\/[^/]+\/disable$/.test(path)&&request.method==='POST') response=await adminDisableRule(request,env,path.split('/')[4]);
     else if(path==='/api/admin/settings'&&request.method==='PATCH') response=await adminSaveSettings(request,env);
+    else if(path==='/api/admin/knowledge'&&request.method==='POST') response=await adminSaveKnowledge(request,env);
+    else if(/^\/api\/admin\/knowledge\/[^/]+$/.test(path)&&request.method==='PATCH') response=await adminSaveKnowledge(request,env,path.split('/').pop());
+    else if(/^\/api\/admin\/knowledge\/[^/]+\/disable$/.test(path)&&request.method==='POST') response=await adminDisableKnowledge(request,env,path.split('/')[4]);
     else if(/^\/api\/admin\/bookings\/[^/]+\/(approve|decline|cancel)$/.test(path)&&request.method==='POST'){const parts=path.split('/'); const action=parts.pop(),id=parts.pop(); response=await updateBookingStatus(request,env,id,action==='approve'?'confirmed':action==='decline'?'declined':'cancelled');}
     else if(path==='/api/webhooks/ycloud'&&request.method==='POST') response=await ycloudWebhook(request,env);
     else return env.ASSETS?env.ASSETS.fetch(request):new Response('Not found',{status:404});
