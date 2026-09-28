@@ -81,7 +81,7 @@ if(floating){
   toggle.className='ai-chat-toggle';
   toggle.type='button';
   toggle.setAttribute('aria-label',chatText.title);
-  toggle.innerHTML='<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 7.5h18a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H14l-6.5 4v-4H7a3 3 0 0 1-3-3v-10a3 3 0 0 1 3-3Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M10 14h12M10 18h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="ai-badge">AI</span>';
+  toggle.innerHTML='<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 7.5h18a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H14l-6.5 4v-4H7a3 3 0 0 1-3-3v-10a3 3 0 0 1 3-3Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M10 14h12M10 18h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   floating.appendChild(toggle);
 
   const panel=document.createElement('section');
