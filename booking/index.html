@@ -23,35 +23,44 @@ async function loadServices(){
     const r=await fetch('/api/services');
     const d=await r.json();
     if(!d.ok)throw new Error(d.error);
-    const categoryOrder=['face','body','hair_removal','weight_metabolic','consultation'];
+
+    const byId=new Map(d.services.map(x=>[x.id,x]));
+    service.innerHTML='<option value="">Selecciona…</option>';
+
+    function addGroup(label,items){
+      const available=items.filter(Boolean).filter(x=>x.booking_enabled);
+      if(!available.length)return;
+      const group=document.createElement('optgroup');
+      group.label=label;
+      for(const x of available){
+        const option=document.createElement('option');
+        option.value=x.id;
+        option.textContent=`${x.name_es} · ${x.duration_minutes} min`;
+        group.appendChild(option);
+      }
+      service.appendChild(group);
+    }
+
+    // These are treatment-family titles from the doctor's list, not bookable services.
+    // Their child treatments remain the actual appointment choices.
+    addGroup('ROSTRO · ARMONIZACIÓN FACIAL',[
+      byId.get('svc-botox'),
+      byId.get('svc-ha-fillers')
+    ]);
+    addGroup('ROSTRO · BIOESTIMULADOR DE COLÁGENO',[
+      byId.get('svc-threads'),
+      byId.get('svc-skin-treatment'),
+      byId.get('svc-facial-fat')
+    ]);
+
     const categoryLabels={
-      face:'ROSTRO',
       body:'CUERPO',
       hair_removal:'DEPILACIÓN',
       weight_metabolic:'PESO Y SALUD METABÓLICA',
       consultation:'CONSULTAS'
     };
-    const groups=new Map(categoryOrder.map(k=>[k,[]]));
-    for(const x of d.services){
-      if(!groups.has(x.category)) groups.set(x.category,[]);
-      groups.get(x.category).push(x);
-    }
-    service.innerHTML='<option value="">Selecciona…</option>';
-    for(const key of categoryOrder){
-      const items=groups.get(key)||[];
-      if(!items.length)continue;
-      const group=document.createElement('optgroup');
-      group.label=categoryLabels[key]||key;
-      for(const x of items){
-        const option=document.createElement('option');
-        option.value=x.id;
-        option.disabled=!x.booking_enabled;
-        option.textContent=x.booking_enabled
-          ? `${x.name_es} · ${x.duration_minutes} min`
-          : `${x.name_es} · tiempo por confirmar`;
-        group.appendChild(option);
-      }
-      service.appendChild(group);
+    for(const key of ['body','hair_removal','weight_metabolic','consultation']){
+      addGroup(categoryLabels[key],d.services.filter(x=>x.category===key));
     }
   }catch(e){
     service.innerHTML='<option value="">Sistema de citas aún no configurado</option>';
