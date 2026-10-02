@@ -1,7 +1,7 @@
 document.querySelectorAll('[data-year]').forEach(el=>el.textContent=new Date().getFullYear());
 
 const languageOptions=[
-  {code:'es',short:'ES',label:'Español',href:'/es/'},
+  {code:'es',short:'ES',label:'Español',href:'/'},
   {code:'en',short:'EN',label:'English',href:'/en/'},
   {code:'pt',short:'PT',label:'Português',href:'/pt/'},
   {code:'it',short:'IT',label:'Italiano',href:'/it/'},
