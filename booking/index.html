@@ -72,6 +72,6 @@ service.addEventListener('change',loadSlots);date.addEventListener('change',load
 $('#bookingForm').addEventListener('submit',async e=>{e.preventDefault();const rawPhone=$('#phone').value.trim();
 const selectedCode=$('#countryCode').value;
 const phoneDigits=rawPhone.replace(/\D/g,'');
-const normalizedPhone=selectedCode+phoneDigits;
+const normalizedPhone=rawPhone.startsWith('+')?'+'+phoneDigits:selectedCode+phoneDigits;
 if(!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))return show('Ingresa un número de teléfono válido.',true);if(!selected)return show('Selecciona un horario.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:normalizedPhone,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'es'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('Solicitud enviada. El consultorio debe aprobarla antes de que quede confirmada. Recibirás la confirmación por WhatsApp cuando esté disponible.');e.target.reset();selected=null;slots.innerHTML=''}catch(err){show(err.message||'No se pudo enviar la solicitud.',true)}});loadServices();
 </script></body></html>
