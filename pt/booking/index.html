@@ -1,0 +1,43 @@
+<!doctype html><html lang="pt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Solicitar uma consulta · Dra. Ydania</title><link rel="stylesheet" href="/assets/styles.css"><style>
+.booking-shell{width:min(760px,92%);margin:42px auto 80px}.booking-card{background:#fff;border:1px solid var(--line);border-radius:26px;padding:28px;box-shadow:var(--shadow)}.booking-grid{display:grid;gap:16px}.booking-card label{display:grid;gap:6px;font-weight:800}.booking-card input,.booking-card select,.booking-card textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;font:inherit}.slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}.slot{border:1px solid var(--line);background:#fff;border-radius:999px;padding:10px;cursor:pointer}.slot.selected{background:var(--purple);color:#fff;border-color:var(--purple)}.booking-status{padding:12px 14px;border-radius:12px;background:#f4efea}.booking-note{font-size:.85rem;opacity:.75}</style></head><body>
+<header><div class="wrap nav"><a class="brand" href="/pt/"><img src="/assets/images/logo-transparent.png" alt="Dra. Ydania"></a><a class="btn alt" href="/pt/">Voltar ao site</a></div></header>
+<main class="booking-shell"><div class="eyebrow">Consultas</div><h1 style="font-size:clamp(2.2rem,6vw,4rem)">Solicitar uma consulta</h1><p class="lead">Escolha o serviço e um horário disponível. A consulta fica <strong>pendente de aprovação do consultório</strong> até você receber a confirmação.</p>
+<div class="booking-card"><form id="bookingForm" class="booking-grid">
+<label>Serviço<select id="service" required><option value="">Carregando serviços…</option></select></label>
+<label>Data<input id="date" type="date" required></label>
+<div><strong>Horários disponíveis</strong><div id="slots" class="slots" style="margin-top:8px"></div></div>
+<label>Nome completo<input id="name" autocomplete="name" required></label>
+<label>WhatsApp / telefone<input id="phone" type="tel" autocomplete="tel" required></label>
+<label>E-mail (opcional)<input id="email" type="email" autocomplete="email"></label>
+<label>Observação de agendamento (opcional)<textarea id="note" rows="3" placeholder="Por exemplo: prefiro pela manhã. Não inclua histórico clínico nem informações médicas sensíveis aqui."></textarea></label>
+<p class="booking-note">Este formulário é apenas para coordenação de consultas. Não envie histórico clínico, exames laboratoriais nem informações médicas sensíveis.</p>
+<button class="btn purple" type="submit">Enviar solicitação</button><div id="status" class="booking-status" hidden></div>
+</form></div></main>
+<script>
+const $=s=>document.querySelector(s); let selected=null;
+const service=$('#service'),date=$('#date'),slots=$('#slots'),status=$('#status');
+const serviceNames={"svc-botox":"Toxina botulínica","svc-ha-fillers":"Preenchimentos com ácido hialurônico (lábios, olheiras, queixo, maçãs do rosto, linha mandibular, sulcos/linhas, nariz)","svc-threads":"Fios (lisos e de sustentação)","svc-skin-treatment":"Tratamento de pele (limpeza, revitalização, PRP)","svc-facial-fat":"Redução localizada de gordura facial","svc-hydroaspiration":"Hidroaspiração","svc-body-mesotherapy":"Mesoterapia corporal","svc-ultracavitation":"Ultracavitação","svc-radiofrequency":"Radiofrequência","svc-hair-underarms":"Depilação: axilas","svc-hair-pubic":"Depilação: região púbica","svc-hair-legs":"Depilação: pernas","svc-weight-nutrition":"Consulta nutricional e controle de peso","svc-followup":"Consulta de acompanhamento","svc-aesthetic-consult":"Consulta estética","svc-comprehensive-consult":"Consulta integral"};
+const clinicToday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Caracas',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()); date.min=clinicToday;
+function show(msg,bad=false){status.hidden=false;status.textContent=msg;status.style.background=bad?'#fdecec':'#eef7f1'}
+async function loadServices(){
+ try{
+  const r=await fetch('/api/services'); const d=await r.json(); if(!d.ok)throw new Error(d.error);
+  const byId=new Map(d.services.map(x=>[x.id,x])); service.innerHTML='<option value="">Selecione…</option>';
+  function addGroup(label,items){
+   const available=items.filter(Boolean).filter(x=>x.booking_enabled); if(!available.length)return;
+   const group=document.createElement('optgroup'); group.label=label;
+   for(const x of available){const option=document.createElement('option');option.value=x.id;option.textContent=`${serviceNames[x.id]||x.name_en||x.name_es} · ${x.duration_minutes} min`;group.appendChild(option)}
+   service.appendChild(group);
+  }
+  addGroup('ROSTO · HARMONIZAÇÃO FACIAL',[byId.get('svc-botox'),byId.get('svc-ha-fillers')]);
+  addGroup('ROSTO · BIOESTIMULADOR DE COLÁGENO',[byId.get('svc-threads'),byId.get('svc-skin-treatment'),byId.get('svc-facial-fat')]);
+  addGroup('CORPO',d.services.filter(x=>x.category==='body'));
+  addGroup('DEPILAÇÃO',d.services.filter(x=>x.category==='hair_removal'));
+  addGroup('PESO E SAÚDE METABÓLICA',d.services.filter(x=>x.category==='weight_metabolic'));
+  addGroup('CONSULTAS',d.services.filter(x=>x.category==='consultation'));
+ }catch(e){service.innerHTML='<option value="">Sistema de agendamento ainda não configurado</option>';show('O sistema de agendamento ainda está sendo configurado. Enquanto isso, entre em contato pelo WhatsApp.',true)}
+}
+async function loadSlots(){selected=null;slots.innerHTML='';if(!service.value||!date.value)return;slots.textContent='Buscando…';try{const r=await fetch(`/api/availability?service=${encodeURIComponent(service.value)}&date=${date.value}`);const d=await r.json();if(!d.ok)throw new Error(d.error);slots.innerHTML=d.slots.length?'':'Não há horários disponíveis nesse dia.';for(const s of d.slots){const b=document.createElement('button');b.type='button';b.className='slot';b.textContent=new Intl.DateTimeFormat('pt-BR',{hour:'numeric',minute:'2-digit',timeZone:'America/Caracas'}).format(new Date(s.start_at));b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=s};slots.appendChild(b)}}catch(e){slots.textContent='Não foi possível carregar a disponibilidade.'}}
+service.addEventListener('change',loadSlots);date.addEventListener('change',loadSlots);
+$('#bookingForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return show('Selecione um horário.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:$('#phone').value,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'pt'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('Solicitação enviada. O consultório deve aprová-la antes da confirmação. Você receberá a confirmação pelo WhatsApp quando estiver disponível.');e.target.reset();selected=null;slots.innerHTML=''}catch(err){show(err.message||'Não foi possível enviar a solicitação.',true)}});loadServices();
+</script></body></html>
