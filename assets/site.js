@@ -147,7 +147,7 @@ if(floating){
       <button type="button" data-chat-topic="location">${chatText.qLocation}</button>
     </div>
     <form class="ai-chat-form"><input type="text" autocomplete="off" placeholder="${chatText.placeholder}" aria-label="${chatText.placeholder}"><button type="submit">${chatText.send}</button></form>
-    <a class="ai-chat-booking-link" href="/booking/">${chatText.bookOnline}</a>
+    <a class="ai-chat-booking-link" href="${lang==='es'?'/booking/':'/'+lang+'/booking/'}">${chatText.bookOnline}</a>
     <div class="ai-chat-privacy">${chatText.privacy}</div>
   `;
   document.body.appendChild(panel);
