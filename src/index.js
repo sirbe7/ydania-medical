@@ -95,9 +95,31 @@ async function createBookingRequest(request,env){
     throw e;
   }
   await audit(db,{actorType:'patient',actorId:phone,action:'booking_requested',entityType:'booking',entityId:id,after:{service_id:service.id,start_at:visibleStart.toISOString(),status:'pending'},requestId:requestId(request),ipHash:await ipHash(request,env)});
+  const offset=Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES));
+  const local=utcIsoToLocalParts(visibleStart.toISOString(),offset);
+
+  const noticeRecipients=String(await getSetting(db,'agenda_email_recipients','Info@DraYdania.com')).split(',').map(x=>x.trim()).filter(Boolean);
+  if(noticeRecipients.length){
+    const subject=`Nueva solicitud de cita — ${name}`;
+    const text=[
+      'Nueva solicitud de cita pendiente de aprobación',
+      '',
+      `Paciente: ${name}`,
+      `Servicio: ${service.name_es}`,
+      `Fecha y hora: ${local.date} ${local.time}`,
+      `WhatsApp / teléfono: +${phone}`,
+      email?`Email: ${email}`:null,
+      note?`Nota: ${note}`:null,
+      `ID: ${id}`,
+      '',
+      'Revisa Doctor Admin para aprobar o rechazar la solicitud.'
+    ].filter(Boolean).join('\n');
+    try{await sendEmail(env,{to:noticeRecipients,subject,text})}
+    catch(e){await recordError(db,'email.booking_request',e,{booking_id:id})}
+  }
+
   const staff=String(env.STAFF_WHATSAPP_NUMBERS||'').split(',').map(cleanPhone).filter(Boolean);
   if(staff.length){
-    const local=utcIsoToLocalParts(visibleStart.toISOString(),Number(await getSetting(db,'utc_offset_minutes',DEFAULT_UTC_OFFSET_MINUTES)));
     const msg=`Nueva solicitud de cita\n${name}\n${service.name_es}\n${local.date} ${local.time}\nID: ${id}\n\nResponde:\nAPROBAR ${id}\nRECHAZAR ${id}`;
     for(const to of staff) try{await sendWhatsAppText(env,to,msg)}catch(e){await recordError(db,'whatsapp.staff_approval',e,{booking_id:id,to})}
   }
