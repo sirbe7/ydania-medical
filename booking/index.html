@@ -18,7 +18,46 @@ const $=s=>document.querySelector(s); let selected=null;
 const service=$('#service'),date=$('#date'),slots=$('#slots'),status=$('#status');
 const clinicToday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Caracas',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()); date.min=clinicToday;
 function show(msg,bad=false){status.hidden=false;status.textContent=msg;status.style.background=bad?'#fdecec':'#eef7f1'}
-async function loadServices(){try{const r=await fetch('/api/services');const d=await r.json();if(!d.ok)throw new Error(d.error);service.innerHTML='<option value="">Selecciona…</option>'+d.services.map(x=>`<option value="${x.id}">${x.name_es} · ${x.duration_minutes} min</option>`).join('')}catch(e){service.innerHTML='<option value="">Sistema de citas aún no configurado</option>';show('El sistema de citas está siendo configurado. Mientras tanto, usa WhatsApp para contactar el consultorio.',true)}}
+async function loadServices(){
+  try{
+    const r=await fetch('/api/services');
+    const d=await r.json();
+    if(!d.ok)throw new Error(d.error);
+    const categoryOrder=['face','body','hair_removal','weight_metabolic','consultation'];
+    const categoryLabels={
+      face:'ROSTRO',
+      body:'CUERPO',
+      hair_removal:'DEPILACIÓN',
+      weight_metabolic:'PESO Y SALUD METABÓLICA',
+      consultation:'CONSULTAS'
+    };
+    const groups=new Map(categoryOrder.map(k=>[k,[]]));
+    for(const x of d.services){
+      if(!groups.has(x.category)) groups.set(x.category,[]);
+      groups.get(x.category).push(x);
+    }
+    service.innerHTML='<option value="">Selecciona…</option>';
+    for(const key of categoryOrder){
+      const items=groups.get(key)||[];
+      if(!items.length)continue;
+      const group=document.createElement('optgroup');
+      group.label=categoryLabels[key]||key;
+      for(const x of items){
+        const option=document.createElement('option');
+        option.value=x.id;
+        option.disabled=!x.booking_enabled;
+        option.textContent=x.booking_enabled
+          ? `${x.name_es} · ${x.duration_minutes} min`
+          : `${x.name_es} · tiempo por confirmar`;
+        group.appendChild(option);
+      }
+      service.appendChild(group);
+    }
+  }catch(e){
+    service.innerHTML='<option value="">Sistema de citas aún no configurado</option>';
+    show('El sistema de citas está siendo configurado. Mientras tanto, usa WhatsApp para contactar el consultorio.',true);
+  }
+}
 async function loadSlots(){selected=null;slots.innerHTML='';if(!service.value||!date.value)return;slots.textContent='Buscando…';try{const r=await fetch(`/api/availability?service=${encodeURIComponent(service.value)}&date=${date.value}`);const d=await r.json();if(!d.ok)throw new Error(d.error);slots.innerHTML=d.slots.length?'':'No hay horarios disponibles ese día.';for(const s of d.slots){const b=document.createElement('button');b.type='button';b.className='slot';b.textContent=new Intl.DateTimeFormat('es-VE',{hour:'numeric',minute:'2-digit',timeZone:'America/Caracas'}).format(new Date(s.start_at));b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=s};slots.appendChild(b)}}catch(e){slots.textContent='No se pudo cargar disponibilidad.'}}
 service.addEventListener('change',loadSlots);date.addEventListener('change',loadSlots);
 $('#bookingForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return show('Selecciona un horario.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:$('#phone').value,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'es'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('Solicitud enviada. El consultorio debe aprobarla antes de que quede confirmada. Recibirás la confirmación por WhatsApp cuando esté disponible.');e.target.reset();selected=null;slots.innerHTML=''}catch(err){show(err.message||'No se pudo enviar la solicitud.',true)}});loadServices();
