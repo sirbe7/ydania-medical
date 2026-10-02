@@ -11,11 +11,12 @@
 <label>Email (opcional)<input id="email" type="email" autocomplete="email"></label>
 <label>Nota logística (opcional)<textarea id="note" rows="3" placeholder="Por ejemplo: prefiero la mañana. No incluya historia clínica ni información médica sensible aquí."></textarea></label>
 <p class="booking-note">Este formulario es solo para coordinación de citas. No envíes historia clínica, resultados de laboratorio ni información médica sensible.</p>
-<button class="btn purple" type="submit">Enviar solicitud</button><div id="status" class="booking-status" hidden></div>
+<button class="btn purple" id="submitBooking" type="submit" disabled>Enviar solicitud</button><div id="status" class="booking-status" hidden></div>
 </form></div></main>
 <script>
 const $=s=>document.querySelector(s); let selected=null;
-const service=$('#service'),date=$('#date'),slots=$('#slots'),status=$('#status');
+const service=$('#service'),date=$('#date'),slots=$('#slots'),status=$('#status'),submitBooking=$('#submitBooking');
+function setBookingReady(ready){submitBooking.disabled=!ready;submitBooking.style.opacity=ready?'1':'.5';submitBooking.style.cursor=ready?'pointer':'not-allowed'}
 const clinicToday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Caracas',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()); date.min=clinicToday;
 function show(msg,bad=false){status.hidden=false;status.textContent=msg;status.style.background=bad?'#fdecec':'#eef7f1'}
 async function loadServices(){
@@ -67,11 +68,27 @@ async function loadServices(){
     show('El sistema de citas está siendo configurado. Mientras tanto, usa WhatsApp para contactar el consultorio.',true);
   }
 }
-async function loadSlots(){selected=null;slots.innerHTML='';if(!service.value||!date.value)return;slots.textContent='Buscando…';try{const r=await fetch(`/api/availability?service=${encodeURIComponent(service.value)}&date=${date.value}`);const d=await r.json();if(!d.ok)throw new Error(d.error);slots.innerHTML=d.slots.length?'':'No hay horarios disponibles ese día.';for(const s of d.slots){const b=document.createElement('button');b.type='button';b.className='slot';b.textContent=new Intl.DateTimeFormat('es-VE',{hour:'numeric',minute:'2-digit',timeZone:'America/Caracas'}).format(new Date(s.start_at));b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=s};slots.appendChild(b)}}catch(e){slots.textContent='No se pudo cargar disponibilidad.'}}
+async function loadSlots(){
+  selected=null;setBookingReady(false);slots.innerHTML='';
+  if(!service.value||!date.value){slots.textContent='Selecciona un servicio y una fecha para ver horarios disponibles.';return}
+  slots.textContent='Buscando…';
+  try{
+    const r=await fetch(`/api/availability?service=${encodeURIComponent(service.value)}&date=${date.value}`);
+    const d=await r.json();if(!d.ok)throw new Error(d.error);
+    if(!d.slots.length){slots.textContent='No hay horarios disponibles ese día. Elige otra fecha.';return}
+    slots.innerHTML='';
+    for(const s of d.slots){
+      const b=document.createElement('button');b.type='button';b.className='slot';
+      b.textContent=new Intl.DateTimeFormat('en-CA',{hour:'numeric',minute:'2-digit',timeZone:'America/Caracas'}).format(new Date(s.start_at));
+      b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=s;setBookingReady(true)};
+      slots.appendChild(b)
+    }
+  }catch(e){slots.textContent='No se pudo cargar disponibilidad.'}
+}
 service.addEventListener('change',loadSlots);date.addEventListener('change',loadSlots);
 $('#bookingForm').addEventListener('submit',async e=>{e.preventDefault();const rawPhone=$('#phone').value.trim();
 const selectedCode=$('#countryCode').value;
 const phoneDigits=rawPhone.replace(/\D/g,'');
 const normalizedPhone=rawPhone.startsWith('+')?'+'+phoneDigits:selectedCode+phoneDigits;
-if(!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))return show('Ingresa un número de teléfono válido.',true);if(!selected)return show('Selecciona un horario.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:normalizedPhone,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'es'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('Solicitud enviada. El consultorio debe aprobarla antes de que quede confirmada. Recibirás la confirmación por WhatsApp cuando esté disponible.');e.target.reset();selected=null;slots.innerHTML=''}catch(err){show(err.message||'No se pudo enviar la solicitud.',true)}});loadServices();
+if(!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))return show('Ingresa un número de teléfono válido.',true);if(!selected)return show('Selecciona un horario.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:normalizedPhone,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'es'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('Solicitud enviada. El consultorio debe aprobarla antes de que quede confirmada. Recibirás la confirmación por WhatsApp cuando esté disponible.');e.target.reset();selected=null;slots.innerHTML='';setBookingReady(false)}catch(err){show(err.message||'No se pudo enviar la solicitud.',true)}});loadServices();
 </script></body></html>
