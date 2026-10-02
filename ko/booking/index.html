@@ -11,11 +11,12 @@
 <label>이메일 (선택)<input id="email" type="email" autocomplete="email"></label>
 <label>예약 관련 메모 (선택)<textarea id="note" rows="3" placeholder="예: 오전을 선호합니다. 병력이나 민감한 의료 정보는 입력하지 마세요."></textarea></label>
 <p class="booking-note">이 양식은 예약 조정을 위한 용도입니다. 병력, 검사 결과 또는 민감한 의료 정보를 보내지 마세요.</p>
-<button class="btn purple" type="submit">예약 요청 보내기</button><div id="status" class="booking-status" hidden></div>
+<button class="btn purple" id="submitBooking" type="submit" disabled>예약 요청 보내기</button><div id="status" class="booking-status" hidden></div>
 </form></div></main>
 <script>
 const $=s=>document.querySelector(s); let selected=null;
-const service=$('#service'),date=$('#date'),slots=$('#slots'),status=$('#status');
+const service=$('#service'),date=$('#date'),slots=$('#slots'),status=$('#status'),submitBooking=$('#submitBooking');
+function setBookingReady(ready){submitBooking.disabled=!ready;submitBooking.style.opacity=ready?'1':'.5';submitBooking.style.cursor=ready?'pointer':'not-allowed'}
 const serviceNames={"svc-botox":"보툴리눔 톡신","svc-ha-fillers":"히알루론산 필러 (입술, 눈 밑, 턱, 광대, 턱선, 주름/선, 코)","svc-threads":"실 리프팅 (스무스 및 리프팅 실)","svc-skin-treatment":"피부 치료 (클렌징, 재생, PRP)","svc-facial-fat":"안면 국소 지방 감소","svc-hydroaspiration":"하이드로 아스피레이션","svc-body-mesotherapy":"바디 메조테라피","svc-ultracavitation":"울트라캐비테이션","svc-radiofrequency":"고주파","svc-hair-underarms":"제모: 겨드랑이","svc-hair-pubic":"제모: 음모 부위","svc-hair-legs":"제모: 다리","svc-weight-nutrition":"영양 및 체중 관리 상담","svc-followup":"추적 진료","svc-aesthetic-consult":"미용 상담","svc-comprehensive-consult":"종합 상담"};
 const clinicToday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Caracas',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()); date.min=clinicToday;
 function show(msg,bad=false){status.hidden=false;status.textContent=msg;status.style.background=bad?'#fdecec':'#eef7f1'}
@@ -37,11 +38,27 @@ async function loadServices(){
   addGroup('상담',d.services.filter(x=>x.category==='consultation'));
  }catch(e){service.innerHTML='<option value="">예약 시스템 설정 중</option>';show('예약 시스템을 설정 중입니다. 그동안 WhatsApp으로 진료실에 문의해 주세요.',true)}
 }
-async function loadSlots(){selected=null;slots.innerHTML='';if(!service.value||!date.value)return;slots.textContent='조회 중…';try{const r=await fetch(`/api/availability?service=${encodeURIComponent(service.value)}&date=${date.value}`);const d=await r.json();if(!d.ok)throw new Error(d.error);slots.innerHTML=d.slots.length?'':'해당 날짜에 가능한 시간이 없습니다.';for(const s of d.slots){const b=document.createElement('button');b.type='button';b.className='slot';b.textContent=new Intl.DateTimeFormat('ko-KR',{hour:'numeric',minute:'2-digit',timeZone:'America/Caracas'}).format(new Date(s.start_at));b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=s};slots.appendChild(b)}}catch(e){slots.textContent='예약 가능 시간을 불러올 수 없습니다.'}}
+async function loadSlots(){
+  selected=null;setBookingReady(false);slots.innerHTML='';
+  if(!service.value||!date.value){slots.textContent='진료 항목과 날짜를 선택하면 가능한 시간이 표시됩니다.';return}
+  slots.textContent='조회 중…';
+  try{
+    const r=await fetch(`/api/availability?service=${encodeURIComponent(service.value)}&date=${date.value}`);
+    const d=await r.json();if(!d.ok)throw new Error(d.error);
+    if(!d.slots.length){slots.textContent='해당 날짜에 가능한 시간이 없습니다. 다른 날짜를 선택해 주세요.';return}
+    slots.innerHTML='';
+    for(const s of d.slots){
+      const b=document.createElement('button');b.type='button';b.className='slot';
+      b.textContent=new Intl.DateTimeFormat('en-CA',{hour:'numeric',minute:'2-digit',timeZone:'America/Caracas'}).format(new Date(s.start_at));
+      b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=s;setBookingReady(true)};
+      slots.appendChild(b)
+    }
+  }catch(e){slots.textContent='예약 가능 시간을 불러올 수 없습니다.'}
+}
 service.addEventListener('change',loadSlots);date.addEventListener('change',loadSlots);
 $('#bookingForm').addEventListener('submit',async e=>{e.preventDefault();const rawPhone=$('#phone').value.trim();
 const selectedCode=$('#countryCode').value;
 const phoneDigits=rawPhone.replace(/\D/g,'');
 const normalizedPhone=rawPhone.startsWith('+')?'+'+phoneDigits:selectedCode+phoneDigits;
-if(!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))return show('유효한 전화번호를 입력해 주세요.',true);if(!selected)return show('시간을 선택하세요.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:normalizedPhone,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'ko'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('예약 요청이 전송되었습니다. 확정 전에 진료실 승인이 필요합니다. 확인이 가능해지면 WhatsApp으로 안내드립니다.');e.target.reset();selected=null;slots.innerHTML=''}catch(err){show(err.message||'예약 요청을 보낼 수 없습니다.',true)}});loadServices();
+if(!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))return show('유효한 전화번호를 입력해 주세요.',true);if(!selected)return show('시간을 선택하세요.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:normalizedPhone,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'ko'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('예약 요청이 전송되었습니다. 확정 전에 진료실 승인이 필요합니다. 확인이 가능해지면 WhatsApp으로 안내드립니다.');e.target.reset();selected=null;slots.innerHTML='';setBookingReady(false)}catch(err){show(err.message||'예약 요청을 보낼 수 없습니다.',true)}});loadServices();
 </script></body></html>
