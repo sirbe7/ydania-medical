@@ -11,11 +11,12 @@
 <label>Email (optional)<input id="email" type="email" autocomplete="email"></label>
 <label>Scheduling note (optional)<textarea id="note" rows="3" placeholder="For example: I prefer mornings. Do not include medical history or sensitive medical information here."></textarea></label>
 <p class="booking-note">This form is only for appointment coordination. Do not send medical history, laboratory results, or sensitive medical information.</p>
-<button class="btn purple" type="submit">Send request</button><div id="status" class="booking-status" hidden></div>
+<button class="btn purple" id="submitBooking" type="submit" disabled>Send request</button><div id="status" class="booking-status" hidden></div>
 </form></div></main>
 <script>
 const $=s=>document.querySelector(s); let selected=null;
-const service=$('#service'),date=$('#date'),slots=$('#slots'),status=$('#status');
+const service=$('#service'),date=$('#date'),slots=$('#slots'),status=$('#status'),submitBooking=$('#submitBooking');
+function setBookingReady(ready){submitBooking.disabled=!ready;submitBooking.style.opacity=ready?'1':'.5';submitBooking.style.cursor=ready?'pointer':'not-allowed'}
 const serviceNames={"svc-botox":"Botulinum toxin","svc-ha-fillers":"Hyaluronic acid fillers (lips, under-eye area, chin, cheekbones, jawline, folds/lines, nose)","svc-threads":"Threads (smooth and lifting)","svc-skin-treatment":"Skin treatment (cleansing, revitalization, PRP)","svc-facial-fat":"Facial localized fat reduction","svc-hydroaspiration":"Hydro-aspiration","svc-body-mesotherapy":"Body mesotherapy","svc-ultracavitation":"Ultracavitation","svc-radiofrequency":"Radiofrequency","svc-hair-underarms":"Hair removal: underarms","svc-hair-pubic":"Hair removal: pubic area","svc-hair-legs":"Hair removal: legs","svc-weight-nutrition":"Nutritional and weight management consultation","svc-followup":"Follow-up appointment","svc-aesthetic-consult":"Aesthetic consultation","svc-comprehensive-consult":"Comprehensive consultation"};
 const clinicToday=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Caracas',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()); date.min=clinicToday;
 function show(msg,bad=false){status.hidden=false;status.textContent=msg;status.style.background=bad?'#fdecec':'#eef7f1'}
@@ -37,11 +38,27 @@ async function loadServices(){
   addGroup('CONSULTATIONS',d.services.filter(x=>x.category==='consultation'));
  }catch(e){service.innerHTML='<option value="">Appointment system not yet configured</option>';show('The appointment system is still being configured. In the meantime, contact the office on WhatsApp.',true)}
 }
-async function loadSlots(){selected=null;slots.innerHTML='';if(!service.value||!date.value)return;slots.textContent='Searching…';try{const r=await fetch(`/api/availability?service=${encodeURIComponent(service.value)}&date=${date.value}`);const d=await r.json();if(!d.ok)throw new Error(d.error);slots.innerHTML=d.slots.length?'':'No times are available that day.';for(const s of d.slots){const b=document.createElement('button');b.type='button';b.className='slot';b.textContent=new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Caracas'}).format(new Date(s.start_at));b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=s};slots.appendChild(b)}}catch(e){slots.textContent='Availability could not be loaded.'}}
+async function loadSlots(){
+  selected=null;setBookingReady(false);slots.innerHTML='';
+  if(!service.value||!date.value){slots.textContent='Select a service and date to see available times.';return}
+  slots.textContent='Searching…';
+  try{
+    const r=await fetch(`/api/availability?service=${encodeURIComponent(service.value)}&date=${date.value}`);
+    const d=await r.json();if(!d.ok)throw new Error(d.error);
+    if(!d.slots.length){slots.textContent='No times are available that day. Choose another date.';return}
+    slots.innerHTML='';
+    for(const s of d.slots){
+      const b=document.createElement('button');b.type='button';b.className='slot';
+      b.textContent=new Intl.DateTimeFormat('en-CA',{hour:'numeric',minute:'2-digit',timeZone:'America/Caracas'}).format(new Date(s.start_at));
+      b.onclick=()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=s;setBookingReady(true)};
+      slots.appendChild(b)
+    }
+  }catch(e){slots.textContent='Availability could not be loaded.'}
+}
 service.addEventListener('change',loadSlots);date.addEventListener('change',loadSlots);
 $('#bookingForm').addEventListener('submit',async e=>{e.preventDefault();const rawPhone=$('#phone').value.trim();
 const selectedCode=$('#countryCode').value;
 const phoneDigits=rawPhone.replace(/\D/g,'');
 const normalizedPhone=rawPhone.startsWith('+')?'+'+phoneDigits:selectedCode+phoneDigits;
-if(!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))return show('Enter a valid phone number.',true);if(!selected)return show('Select a time.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:normalizedPhone,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'en'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('Request sent. The office must approve it before it is confirmed. You will receive confirmation by WhatsApp when available.');e.target.reset();selected=null;slots.innerHTML=''}catch(err){show(err.message||'The request could not be sent.',true)}});loadServices();
+if(!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))return show('Enter a valid phone number.',true);if(!selected)return show('Select a time.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:normalizedPhone,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'en'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('Request sent. The office must approve it before it is confirmed. You will receive confirmation by WhatsApp when available.');e.target.reset();selected=null;slots.innerHTML='';setBookingReady(false)}catch(err){show(err.message||'The request could not be sent.',true)}});loadServices();
 </script></body></html>
