@@ -42,6 +42,6 @@ service.addEventListener('change',loadSlots);date.addEventListener('change',load
 $('#bookingForm').addEventListener('submit',async e=>{e.preventDefault();const rawPhone=$('#phone').value.trim();
 const selectedCode=$('#countryCode').value;
 const phoneDigits=rawPhone.replace(/\D/g,'');
-const normalizedPhone=selectedCode+phoneDigits;
+const normalizedPhone=rawPhone.startsWith('+')?'+'+phoneDigits:selectedCode+phoneDigits;
 if(!/^\+[1-9]\d{7,14}$/.test(normalizedPhone))return show('Inserisci un numero di telefono valido.',true);if(!selected)return show('Seleziona un orario.',true);const payload={service_id:service.value,start_at:selected.start_at,patient_name:$('#name').value,patient_phone:normalizedPhone,patient_email:$('#email').value,patient_note:$('#note').value,preferred_language:'it'};try{const r=await fetch('/api/bookings/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!d.ok)throw new Error(d.error);show('Richiesta inviata. Lo studio deve approvarla prima che sia confermata. Riceverai la conferma via WhatsApp quando disponibile.');e.target.reset();selected=null;slots.innerHTML=''}catch(err){show(err.message||'Impossibile inviare la richiesta.',true)}});loadServices();
 </script></body></html>
