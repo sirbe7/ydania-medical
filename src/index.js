@@ -236,6 +236,18 @@ async function adminTestEmail(request,env){
   return json({ok:true,provider:sent.provider});
 }
 
+async function adminTestWhatsApp(request,env){
+  if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env);
+  if(!env.YCLOUD_API_KEY) return bad('YCloud API key is not configured',400);
+  if(!env.WHATSAPP_FROM) return bad('WhatsApp sender number is not configured',400);
+  const staff=String(env.STAFF_WHATSAPP_NUMBERS||'').split(',').map(cleanPhone).filter(Boolean);
+  if(!staff.length) return bad('No staff WhatsApp number is configured',400);
+  const to=staff[0];
+  const sent=await sendWhatsAppText(env,to,'Prueba exitosa de WhatsApp · DraYdania.com. El sistema de notificaciones está conectado.');
+  await audit(db,{actorType:'system_test',actorId:'admin',action:'whatsapp_test_sent',entityType:'whatsapp',after:{provider:whatsappProvider(env),recipient:'[configured staff number]'}});
+  return json({ok:true,provider:whatsappProvider(env),recipient_last4:to.slice(-4),message_id:sent?.id||sent?.messageId||null});
+}
+
 async function adminSaveSettings(request,env){
   if(!requireAdmin(request,env)) return bad('Unauthorized',401); const db=dbRequired(env); const body=await request.json();
   const allowed=['agenda_email_enabled','agenda_email_hour_local','agenda_email_recipients','slot_step_minutes'];
@@ -507,6 +519,7 @@ async function route(request,env){
     else if(/^\/api\/admin\/availability-rules\/[^/]+\/disable$/.test(path)&&request.method==='POST') response=await adminDisableRule(request,env,path.split('/')[4]);
     else if(path==='/api/admin/settings'&&request.method==='PATCH') response=await adminSaveSettings(request,env);
     else if(path==='/api/admin/test-email'&&request.method==='POST') response=await adminTestEmail(request,env);
+    else if(path==='/api/admin/test-whatsapp'&&request.method==='POST') response=await adminTestWhatsApp(request,env);
     else if(path==='/api/admin/knowledge'&&request.method==='POST') response=await adminSaveKnowledge(request,env);
     else if(/^\/api\/admin\/knowledge\/[^/]+$/.test(path)&&request.method==='PATCH') response=await adminSaveKnowledge(request,env,path.split('/').pop());
     else if(/^\/api\/admin\/knowledge\/[^/]+\/disable$/.test(path)&&request.method==='POST') response=await adminDisableKnowledge(request,env,path.split('/')[4]);
